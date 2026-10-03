@@ -77,6 +77,13 @@ describe('formato de ejes de fecha', () => {
     expect(new Set(gaps).size).toBe(1);
   });
 
+  it('acepta un máximo de etiquetas según el ancho (paso regular, incluye el último mes)', () => {
+    const dates = days('2025-10-03', 53, 7); // ~13 meses
+    const { ticks, format } = dateAxisTicks(dates, 5);
+    expect(ticks.length).toBeLessThanOrEqual(5);
+    expect(format(ticks.at(-1)!)).toBe('oct 26');
+  });
+
   it('rango de menos de 3 meses: ticks por punto con día ("15 abr"), también sin repetidos', () => {
     const dates = days('2026-01-02', 6, 7);
     const { ticks, format } = dateAxisTicks(dates);

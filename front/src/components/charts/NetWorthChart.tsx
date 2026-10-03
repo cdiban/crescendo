@@ -3,6 +3,7 @@ import { Area, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts
 import type { Api, Currency, PortfolioHistoryPoint } from '../../api/client.ts';
 import { paddedDomain } from '../../lib/chart-scale.ts';
 import { chartNumber, dateAxisTicks, formatCompactMoney } from '../../lib/chart-format.ts';
+import { useElementWidth } from '../../lib/chart-axis.tsx';
 import { formatDate, formatMoney } from '../../lib/format.ts';
 import { PERIODS, historyRange, type Period } from '../../lib/periods.ts';
 import { today, useAsync } from '../../lib/useAsync.ts';
@@ -34,7 +35,9 @@ export function NetWorthChart({ api, reportingCurrency }: { api: Api; reportingC
   const money = (v: string) => formatMoney(v, currency);
   const last = items.at(-1);
   // Un tick por mes ("abr 26"), o por punto con el día ("15 abr") si el rango es corto: sin etiquetas repetidas.
-  const axis = dateAxisTicks(items.map((p) => p.date));
+  const [frame, width] = useElementWidth<HTMLDivElement>();
+  // Máximo de etiquetas según el ancho (~56 px cada una, "sept 26"); interval 0: se muestran todas las elegidas.
+  const axis = dateAxisTicks(items.map((p) => p.date), width > 0 ? Math.floor((width - 72) / 56) : undefined);
   const data = items.map((p) => ({
     date: p.date,
     netWorth: chartNumber(p.netWorth),
@@ -85,10 +88,11 @@ export function NetWorthChart({ api, reportingCurrency }: { api: Api; reportingC
       }
     >
       <ErrorAlert error={history.error} />
+      <div ref={frame}>
       <ChartContainer config={config} className="aspect-auto h-64 w-full">
         <ComposedChart data={data} margin={{ left: 4, right: 8, top: 8 }}>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey="date" {...AXIS} ticks={axis.ticks} minTickGap={16} tickFormatter={axis.format} />
+          <XAxis dataKey="date" {...AXIS} ticks={axis.ticks} interval={0} tickFormatter={axis.format} />
           <YAxis domain={paddedDomain} {...AXIS} width={64} tickFormatter={(v: number) => formatCompactMoney(v, currency)} />
           <ChartTooltip content={<NetWorthTooltip currency={currency} showDividends={showDividends} />} />
           <ChartLegend content={<ChartLegendContent />} />
@@ -97,6 +101,7 @@ export function NetWorthChart({ api, reportingCurrency }: { api: Api; reportingC
           {showDividends && <Line dataKey="dividends" type="monotone" stroke="var(--color-dividends)" strokeWidth={2} dot={false} isAnimationActive={false} />}
         </ComposedChart>
       </ChartContainer>
+      </div>
     </ChartFigure>
   );
 }

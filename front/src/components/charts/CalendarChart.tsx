@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import type { Currency, DividendCalendar } from '../../api/client.ts';
 import { paddedDomain } from '../../lib/chart-scale.ts';
+import { MonthTick, categoryAxis, useElementWidth } from '../../lib/chart-axis.tsx';
 import { chartNumber, formatCompactMoney, formatMonth } from '../../lib/chart-format.ts';
 import { formatDate, formatMoney } from '../../lib/format.ts';
 import { Badge, ErrorAlert, isZero } from '../ui.tsx';
@@ -26,6 +27,8 @@ export function CalendarChart({ data, error, currency }: { data: DividendCalenda
   const dash = (v: string) => (isZero(v) ? '—' : money(v));
   const [selected, setSelected] = useState<string | null>(null);
   const current = months.find((m) => m.month === selected) ?? months[0];
+  const [frame, width] = useElementWidth<HTMLDivElement>();
+  const xAxis = categoryAxis(months.length, width - 64);
   const chart = months.map((m) => ({ month: m.month, announced: chartNumber(m.announcedNet), estimated: chartNumber(m.estimatedNet), raw: m }));
 
   return (
@@ -43,10 +46,11 @@ export function CalendarChart({ data, error, currency }: { data: DividendCalenda
       }
     >
       <ErrorAlert error={error} />
+      <div ref={frame}>
       <ChartContainer config={config} className="aspect-auto h-56 w-full">
         <BarChart data={chart} margin={{ left: 4, right: 4, top: 8 }} onClick={(e) => e?.activeLabel && setSelected(String(e.activeLabel))}>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey="month" {...AXIS} minTickGap={8} tickFormatter={(m: string) => formatMonth(m)} />
+          <XAxis dataKey="month" {...AXIS} {...xAxis} height={34} tick={<MonthTick />} />
           <YAxis domain={paddedDomain} {...AXIS} width={56} tickFormatter={(v: number) => formatCompactMoney(v, c)} />
           <ChartTooltip cursor={{ fill: 'var(--color-muted)' }} content={<CalendarTooltip money={money} />} />
           <ChartLegend content={<ChartLegendContent />} />
@@ -54,6 +58,7 @@ export function CalendarChart({ data, error, currency }: { data: DividendCalenda
           <Bar dataKey="estimated" stackId="m" fill="var(--color-estimated)" radius={[3, 3, 0, 0]} isAnimationActive={false} className="cursor-pointer" />
         </BarChart>
       </ChartContainer>
+      </div>
 
       {/* Selección accesible por teclado (el clic en la barra hace lo mismo). */}
       <div role="group" aria-label="Mes" className="flex flex-wrap gap-1">

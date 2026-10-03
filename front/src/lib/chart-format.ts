@@ -38,7 +38,7 @@ const MAX_MONTH_TICKS = 12;
  * Ticks de un eje de fechas sin etiquetas repetidas: un tick por mes (el primer punto de cada mes, rotulado "abr 26");
  * si la serie abarca menos de 3 meses, un tick por punto rotulado con el día ("15 abr").
  */
-export function dateAxisTicks(dates: string[]): { ticks: string[]; format: (date: string) => string } {
+export function dateAxisTicks(dates: string[], maxTicks = MAX_MONTH_TICKS): { ticks: string[]; format: (date: string) => string } {
   const monthStarts: string[] = [];
   let lastMonth = '';
   for (const date of dates) {
@@ -50,7 +50,7 @@ export function dateAxisTicks(dates: string[]): { ticks: string[]; format: (date
   }
   if (monthStarts.length >= 3) {
     // Rangos largos: un mes cada `step` (paso regular, máx. MAX_MONTH_TICKS), contando desde el último mes para incluirlo.
-    const step = Math.ceil(monthStarts.length / MAX_MONTH_TICKS);
+    const step = Math.ceil(monthStarts.length / Math.max(2, maxTicks));
     const last = monthStarts.length - 1;
     const ticks = monthStarts.filter((_, i) => (last - i) % step === 0);
     return { ticks, format: (d) => formatMonth(d.slice(0, 7)) };

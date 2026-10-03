@@ -1,6 +1,7 @@
 import { Bar, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts';
 import type { Currency, DividendsMonthly } from '../../api/client.ts';
 import { paddedDomain } from '../../lib/chart-scale.ts';
+import { MonthTick, categoryAxis, useElementWidth } from '../../lib/chart-axis.tsx';
 import { chartNumber, formatCompactMoney, formatMonth } from '../../lib/chart-format.ts';
 import { formatMoney } from '../../lib/format.ts';
 import { ErrorAlert, SignedPercent, isZero } from '../ui.tsx';
@@ -42,6 +43,9 @@ export function DividendsMonthlyChart({
     raw: m,
   }));
   const c = data?.reportingCurrency ?? currency;
+  // Una etiqueta por mes si cabe (interval 0); si no, un paso regular. Área de trazado ≈ ancho − 2 ejes Y.
+  const [frame, width] = useElementWidth<HTMLDivElement>();
+  const xAxis = categoryAxis(months.length, width - 128);
 
   return (
     <ChartFigure
@@ -67,10 +71,11 @@ export function DividendsMonthlyChart({
       }
     >
       <ErrorAlert error={error} />
+      <div ref={frame}>
       <ChartContainer config={config} className="aspect-auto h-64 w-full">
         <ComposedChart data={chart} margin={{ left: 4, right: 4, top: 8 }}>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey="month" {...AXIS} minTickGap={12} tickFormatter={(m: string) => formatMonth(m)} />
+          <XAxis dataKey="month" {...AXIS} {...xAxis} height={34} tick={<MonthTick />} />
           <YAxis domain={paddedDomain} yAxisId="month" {...AXIS} width={60} tickFormatter={(v: number) => formatCompactMoney(v, c)} />
           <YAxis domain={paddedDomain} yAxisId="total" orientation="right" {...AXIS} width={60} tickFormatter={(v: number) => formatCompactMoney(v, c)} />
           <ChartTooltip content={<MonthTooltip money={money} />} />
@@ -80,6 +85,7 @@ export function DividendsMonthlyChart({
           <Line yAxisId="total" dataKey="cumulative" type="monotone" stroke="var(--color-cumulative)" strokeWidth={2} dot={false} isAnimationActive={false} />
         </ComposedChart>
       </ChartContainer>
+      </div>
     </ChartFigure>
   );
 }

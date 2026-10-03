@@ -25,7 +25,8 @@ export function ChartFigure({ title, summary, actions, table, loading, empty, cl
     <figure
       aria-labelledby={titleId}
       aria-busy={loading || undefined}
-      className={cn('m-0 flex flex-col gap-3 rounded-xl bg-card py-4 text-sm text-card-foreground ring-1 ring-foreground/10', className)}
+      // Mismo padding interno que las Card de shadcn (CardHeader/CardContent usan --card-spacing, que define Card).
+      className={cn('m-0 flex flex-col gap-3 rounded-xl bg-card py-4 text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)]', className)}
     >
       <CardHeader className="flex flex-wrap items-start justify-between gap-2">
         <div className="grid min-w-0 gap-1">

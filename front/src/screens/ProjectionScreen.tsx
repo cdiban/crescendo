@@ -7,6 +7,7 @@ import { AXIS, TooltipBox } from '../components/charts/parts.tsx';
 import { CheckboxField, FormField, FormGrid } from '../components/form.tsx';
 import { Badge, ErrorAlert, Loading, PageHeader } from '../components/ui.tsx';
 import { paddedDomain } from '../lib/chart-scale.ts';
+import { categoryAxis, useElementWidth } from '../lib/chart-axis.tsx';
 import { chartNumber, formatCompactMoney } from '../lib/chart-format.ts';
 import { formatAmountInput, formatMoney, formatPercent, fractionToPercent, parseAmountInput, percentToFraction } from '../lib/format.ts';
 import { useAsync } from '../lib/useAsync.ts';
@@ -219,6 +220,7 @@ const wealthConfig = {
 } satisfies ChartConfig;
 
 function WealthChart({ data, money, currency }: { data: SnowballProjection; money: (v: string) => string; currency: Currency }) {
+  const [frame, width] = useElementWidth<HTMLDivElement>();
   const chart = useMemo(
     () => data.years.map((y) => ({ year: y.calendarYear, netWorth: chartNumber(y.netWorth), contributed: chartNumber(y.contributedCumulative), raw: y })),
     [data],
@@ -229,10 +231,11 @@ function WealthChart({ data, money, currency }: { data: SnowballProjection; mone
       title="Patrimonio vs aportes acumulados"
       summary={last && `En ${last.calendarYear}: patrimonio ${money(last.netWorth)} con ${money(last.contributedCumulative)} de aportes nuevos.`}
     >
+      <div ref={frame}>
       <ChartContainer config={wealthConfig} className="aspect-auto h-60 w-full">
         <ComposedChart data={chart} margin={{ left: 4, right: 8, top: 8 }}>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey="year" {...AXIS} minTickGap={16} />
+          <XAxis dataKey="year" {...AXIS} {...categoryAxis(chart.length, width - 72, 40)} />
           <YAxis domain={paddedDomain} {...AXIS} width={64} tickFormatter={(v: number) => formatCompactMoney(v, currency)} />
           <ChartTooltip content={<YearTooltip money={money} />} />
           <ChartLegend content={<ChartLegendContent />} />
@@ -240,6 +243,7 @@ function WealthChart({ data, money, currency }: { data: SnowballProjection; mone
           <Line dataKey="contributed" type="monotone" stroke="var(--color-contributed)" strokeWidth={2} strokeDasharray="5 4" dot={false} isAnimationActive={false} />
         </ComposedChart>
       </ChartContainer>
+      </div>
     </ChartFigure>
   );
 }
@@ -251,6 +255,7 @@ const incomeConfig = {
 } satisfies ChartConfig;
 
 function IncomeChart({ data, money, currency, goal }: { data: SnowballProjection; money: (v: string) => string; currency: Currency; goal: string | null }) {
+  const [frame, width] = useElementWidth<HTMLDivElement>();
   // La meta se dibuja como una serie más (aparece en la leyenda y no tapa las barras).
   const chart = data.years.map((y) => ({ year: y.calendarYear, monthly: chartNumber(y.monthlyDividendsNet), goal: chartNumber(goal), raw: y }));
   const last = data.years.at(-1);
@@ -262,10 +267,11 @@ function IncomeChart({ data, money, currency, goal }: { data: SnowballProjection
         `En ${last.calendarYear}: ${money(last.monthlyDividendsNet)} al mes${goal ? ` frente a una meta de ${money(goal)}; en verde, los años con la meta cubierta` : ''}.`
       }
     >
+      <div ref={frame}>
       <ChartContainer config={incomeConfig} className="aspect-auto h-60 w-full">
         <ComposedChart data={chart} margin={{ left: 4, right: 8, top: 8 }}>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey="year" {...AXIS} minTickGap={16} />
+          <XAxis dataKey="year" {...AXIS} {...categoryAxis(chart.length, width - 72, 40)} />
           <YAxis domain={paddedDomain} {...AXIS} width={60} tickFormatter={(v: number) => formatCompactMoney(v, currency)} />
           <ChartTooltip content={<YearTooltip money={money} />} />
           <ChartLegend content={<ChartLegendContent />} />
@@ -277,6 +283,7 @@ function IncomeChart({ data, money, currency, goal }: { data: SnowballProjection
           {goal && <Line dataKey="goal" type="linear" stroke="var(--color-goal)" strokeWidth={2} strokeDasharray="6 4" dot={false} isAnimationActive={false} />}
         </ComposedChart>
       </ChartContainer>
+      </div>
     </ChartFigure>
   );
 }
