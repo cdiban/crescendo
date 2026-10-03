@@ -1,0 +1,65 @@
+# Crescendo: navegador → web (nginx, :8080) → api (:3000, interno) → db (interno).
+# Uso: cp .env.example .env && docker compose up --build
+# Sólo `web` publica puerto; db y api viven en la red interna de Compose.
+
+services:
+  db:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?definir en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definir en .env}
+      POSTGRES_DB: ${POSTGRES_DB:?definir en .env}
+    volumes:
+      # Postgres 18 guarda los datos en /var/lib/postgresql/<versión>/docker.
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build: ./back
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?definir en .env}
+      APP_ORIGIN: ${APP_ORIGIN:?definir en .env}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./front
+    restart: unless-stopped
+    ports:
+      # Por defecto sólo localhost; WEB_BIND=0.0.0.0 lo expone a la red.
+      - "${WEB_BIND:-127.0.0.1}:8080:80"
+    depends_on:
+      - api
+
+  # Postgres desechable para `npm run test:integration` (fuera de `up`):
+  #   docker compose --profile test up -d db-test
+  # Sólo escucha en 127.0.0.1 y guarda en memoria (tmpfs).
+  db-test:
+    image: postgres:18.6-alpine
+    profiles: [test]
+    environment:
+      POSTGRES_USER: crescendo
+      POSTGRES_PASSWORD: crescendo
+      POSTGRES_DB: crescendo_test
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crescendo -d crescendo_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  db-data:

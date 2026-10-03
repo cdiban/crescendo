@@ -1,0 +1,176 @@
+openapi: 3.1.0
+info:
+  title: Crescendo API
+  version: 0.1.0
+  description: |
+    Contrato de la API de Crescendo. Fuente de verdad compartida por Crescendo Back y Crescendo Front.
+    Cualquier cambio se propone al orquestador (Crescendo) antes de aplicarse.
+
+    Convenciones:
+    - Prefijo de versión: /api/v1
+    - JSON en camelCase.
+    - Errores en formato RFC 9457 (application/problem+json).
+    - Autenticación por cookie de sesión `crescendo_session` (HttpOnly; Secure; SameSite=Strict; Path=/).
+    - Toda petición que modifica estado (POST/PUT/PATCH/DELETE) debe enviar `Content-Type: application/json`
+      y, si trae cabecera `Origin`, ésta debe coincidir con el origen configurado (APP_ORIGIN). Si no, 403.
+servers:
+  - url: /api/v1
+tags:
+  - name: system
+  - name: auth
+paths:
+  /health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Estado de la API y de la base de datos
+      security: []
+      responses:
+        '200':
+          description: API y base de datos operativas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example: { status: ok, db: ok }
+        '503':
+          description: La base de datos no responde
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              example: { status: degraded, db: down }
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Inicia sesión y entrega la cookie de sesión
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '204':
+          description: Sesión creada
+          headers:
+            Set-Cookie:
+              description: crescendo_session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=<SESSION_TTL>
+              schema: { type: string }
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Credenciales inválidas (mensaje genérico, no revela si el email existe)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+              example: { type: about:blank, title: Unauthorized, status: 401, code: INVALID_CREDENTIALS, detail: Email o contraseña incorrectos }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          description: Demasiados intentos (lo aplica nginx)
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Cierra la sesión actual y la invalida en el servidor
+      requestBody:
+        required: false
+        description: Sin datos. El cliente envía `{}` con Content-Type application/json (requisito CSRF); el servidor acepta `{}` o cuerpo vacío.
+        content:
+          application/json:
+            schema:
+              type: object
+              maxProperties: 0
+      responses:
+        '204':
+          description: Sesión cerrada; se envía Set-Cookie que expira la cookie
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Usuario de la sesión actual
+      responses:
+        '200':
+          description: Usuario autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: crescendo_session
+  schemas:
+    Health:
+      type: object
+      required: [status, db]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        db: { type: string, enum: [ok, down] }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 1, maxLength: 1024 }
+    User:
+      type: object
+      required: [id, email]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details + `code` estable para que el front decida.
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, default: about:blank }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code:
+          type: string
+          enum: [VALIDATION_ERROR, INVALID_CREDENTIALS, UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, METHOD_NOT_ALLOWED, PAYLOAD_TOO_LARGE, INTERNAL_ERROR]
+          description: |
+            400 VALIDATION_ERROR · 401 INVALID_CREDENTIALS | UNAUTHENTICATED · 403 FORBIDDEN · 404 NOT_FOUND ·
+            405 METHOD_NOT_ALLOWED (con cabecera Allow) · 413 PAYLOAD_TOO_LARGE · 500 INTERNAL_ERROR
+        errors:
+          type: array
+          description: Sólo en VALIDATION_ERROR
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+  responses:
+    ValidationError:
+      description: Cuerpo inválido
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Sin sesión o sesión expirada
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example: { type: about:blank, title: Unauthorized, status: 401, code: UNAUTHENTICATED }
+    Forbidden:
+      description: Origin no permitido o Content-Type distinto de application/json
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+security:
+  - sessionCookie: []

@@ -1,0 +1,7 @@
+.DS_Store
+node_modules/
+dist/
+coverage/
+.env
+# Datos financieros personales: nunca al repo ni a las imágenes
+data/
