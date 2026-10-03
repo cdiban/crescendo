@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createApi, type Api, type Currency, type User } from './api/client.ts';
 import { Link, navigate, usePath } from './router.tsx';
-import { CashScreen } from './screens/cash/CashScreen.tsx';
-import { DividendsScreen } from './screens/dividends/DividendsScreen.tsx';
+import { Loading } from './components/ui.tsx';
 import { Layout } from './screens/Layout.tsx';
 import { Login } from './screens/Login.tsx';
-import { PositionsScreen } from './screens/PositionsScreen.tsx';
-import { SettingsScreen } from './screens/settings/SettingsScreen.tsx';
-import { SummaryScreen } from './screens/SummaryScreen.tsx';
-import { TradesScreen } from './screens/trades/TradesScreen.tsx';
+
+// Cada pantalla se carga al visitarla (code splitting): el login y el shell no descargan diálogos, combobox ni tablas.
+const SummaryScreen = lazy(() => import('./screens/SummaryScreen.tsx').then((m) => ({ default: m.SummaryScreen })));
+const PositionsScreen = lazy(() => import('./screens/PositionsScreen.tsx').then((m) => ({ default: m.PositionsScreen })));
+const DividendsScreen = lazy(() => import('./screens/dividends/DividendsScreen.tsx').then((m) => ({ default: m.DividendsScreen })));
+const TradesScreen = lazy(() => import('./screens/trades/TradesScreen.tsx').then((m) => ({ default: m.TradesScreen })));
+const CashScreen = lazy(() => import('./screens/cash/CashScreen.tsx').then((m) => ({ default: m.CashScreen })));
+const SettingsScreen = lazy(() => import('./screens/settings/SettingsScreen.tsx').then((m) => ({ default: m.SettingsScreen })));
 
 type Session =
   | { kind: 'checking' }
@@ -53,8 +56,8 @@ export function App() {
   switch (session.kind) {
     case 'checking':
       return (
-        <main className="card login" aria-busy="true">
-          <p>Cargando…</p>
+        <main className="grid min-h-dvh place-items-center" aria-busy="true">
+          <p className="text-sm text-muted-foreground">Cargando…</p>
         </main>
       );
     case 'anonymous':
@@ -84,12 +87,19 @@ function Routes({ api, reportingCurrency }: { api: Api; reportingCurrency: Curre
   }, [normalized, path]);
 
   const Screen = ROUTES[normalized];
-  if (Screen) return <Screen api={api} reportingCurrency={reportingCurrency} />;
+  if (Screen)
+    return (
+      <Suspense fallback={<Loading lines={4} />}>
+        <Screen api={api} reportingCurrency={reportingCurrency} />
+      </Suspense>
+    );
   return (
-    <div className="screen">
-      <h1>Página no encontrada</h1>
-      <p>
-        <Link to={HOME}>Ir al resumen</Link>
+    <div className="grid gap-2">
+      <h1 className="font-heading text-xl font-semibold">Página no encontrada</h1>
+      <p className="text-sm">
+        <Link to={HOME} className="text-primary underline-offset-4 hover:underline">
+          Ir al resumen
+        </Link>
       </p>
     </div>
   );

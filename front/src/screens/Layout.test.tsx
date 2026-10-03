@@ -41,6 +41,25 @@ describe('Layout', () => {
     expect(await screen.findByText('API: ok · Base de datos: ok')).toBeTruthy();
   });
 
+  it('en móvil un botón abre el menú con la misma navegación y lo cierra al navegar', async () => {
+    mockFetch([health]);
+    renderLayout();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir menú' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Menú' });
+    const caja = [...sheet.querySelectorAll('a')].find((a) => a.textContent === 'Caja')!;
+    fireEvent.click(caja);
+
+    expect(window.location.pathname).toBe('/caja');
+    await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Menú' })).toBeNull());
+  });
+
+  it('incluye el selector de tema', () => {
+    mockFetch([health]);
+    renderLayout();
+    expect(screen.getByRole('button', { name: /^Tema/ })).toBeTruthy();
+  });
+
   it('el selector muestra la moneda de reporte y ofrece CLP y USD', () => {
     mockFetch([health]);
     renderLayout();

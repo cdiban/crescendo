@@ -1,6 +1,10 @@
 import { useId, useState, type FormEvent } from 'react';
 import type { Account, Api, Instrument, Trade, TradeInput, TradeSide } from '../../api/client.ts';
+import { CheckboxField, FormField, FormGrid, RadioGroupField, RadioOption } from '../../components/form.tsx';
 import { ErrorAlert } from '../../components/ui.tsx';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { normalizeDecimal } from '../../lib/format.ts';
 import { today } from '../../lib/useAsync.ts';
 
@@ -74,78 +78,62 @@ export function TradeForm({ api, accounts, instruments, initial, onSaved, onCanc
   }
 
   return (
-    <form className="form-grid" aria-label={editing ? 'Editar operación' : 'Nueva operación'} onSubmit={handleSubmit} noValidate aria-busy={submitting}>
-      <fieldset className="field span-2 inline">
-        <legend>Tipo</legend>
-        <label>
-          <input type="radio" name={`${ids}-side`} checked={side === 'BUY'} onChange={() => setSide('BUY')} /> Compra
-        </label>
-        <label>
-          <input type="radio" name={`${ids}-side`} checked={side === 'SELL'} onChange={() => setSide('SELL')} /> Venta
-        </label>
-      </fieldset>
-      <div className="field">
-        <label htmlFor={`${ids}-account`}>Cuenta</label>
-        <select id={`${ids}-account`} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-          <option value="">Elige…</option>
-          {activeAccounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-instrument`}>Instrumento</label>
-        <select id={`${ids}-instrument`} value={instrumentId} onChange={(e) => setInstrumentId(e.target.value)}>
-          <option value="">Elige…</option>
-          {instruments.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.symbol} · {i.marketCode}
-            </option>
-          ))}
-        </select>
-        {instrument && <small className="muted">Moneda: {instrument.currency}</small>}
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-date`}>Fecha</label>
-        <input id={`${ids}-date`} type="date" value={tradeDate} onChange={(e) => setTradeDate(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-qty`}>Cantidad</label>
-        <input id={`${ids}-qty`} inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-price`}>Precio</label>
-        <input id={`${ids}-price`} inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-commission`}>Comisión</label>
-        <input id={`${ids}-commission`} inputMode="decimal" placeholder="0" value={commission} onChange={(e) => setCommission(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-tax`}>Impuesto sobre la comisión (monto)</label>
-        <input id={`${ids}-tax`} inputMode="decimal" placeholder="0" value={commissionTax} onChange={(e) => setCommissionTax(e.target.value)} />
-      </div>
-      <div className="field span-2">
-        <label htmlFor={`${ids}-notes`}>Notas</label>
-        <input id={`${ids}-notes`} maxLength={200} value={notes} onChange={(e) => setNotes(e.target.value)} />
-      </div>
-      <label className="field checkbox">
-        <input type="checkbox" checked={needsReview} onChange={(e) => setNeedsReview(e.target.checked)} /> Por revisar
-      </label>
-      <div className="span-all">
-        <ErrorAlert error={error} />
-      </div>
-      <div className="actions span-all">
+    <form className="grid gap-4" aria-label={editing ? 'Editar operación' : 'Nueva operación'} onSubmit={handleSubmit} noValidate aria-busy={submitting}>
+      <FormGrid>
+        <RadioGroupField legend="Tipo">
+          <RadioOption name={`${ids}-side`} label="Compra" checked={side === 'BUY'} onChange={() => setSide('BUY')} />
+          <RadioOption name={`${ids}-side`} label="Venta" checked={side === 'SELL'} onChange={() => setSide('SELL')} />
+        </RadioGroupField>
+        <FormField label="Cuenta" htmlFor={`${ids}-account`}>
+          <NativeSelect id={`${ids}-account`} className="w-full" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            <NativeSelectOption value="">Elige…</NativeSelectOption>
+            {activeAccounts.map((a) => (
+              <NativeSelectOption key={a.id} value={a.id}>
+                {a.name}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </FormField>
+        <FormField label="Instrumento" htmlFor={`${ids}-instrument`} hint={instrument && `Moneda: ${instrument.currency}`}>
+          <NativeSelect id={`${ids}-instrument`} className="w-full" value={instrumentId} onChange={(e) => setInstrumentId(e.target.value)}>
+            <NativeSelectOption value="">Elige…</NativeSelectOption>
+            {instruments.map((i) => (
+              <NativeSelectOption key={i.id} value={i.id}>
+                {i.symbol} · {i.marketCode}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </FormField>
+        <FormField label="Fecha" htmlFor={`${ids}-date`}>
+          <Input id={`${ids}-date`} type="date" value={tradeDate} onChange={(e) => setTradeDate(e.target.value)} />
+        </FormField>
+        <FormField label="Cantidad" htmlFor={`${ids}-qty`}>
+          <Input id={`${ids}-qty`} inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+        </FormField>
+        <FormField label="Precio" htmlFor={`${ids}-price`}>
+          <Input id={`${ids}-price`} inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
+        </FormField>
+        <FormField label="Comisión" htmlFor={`${ids}-commission`}>
+          <Input id={`${ids}-commission`} inputMode="decimal" placeholder="0" value={commission} onChange={(e) => setCommission(e.target.value)} />
+        </FormField>
+        <FormField label="Impuesto sobre la comisión (monto)" htmlFor={`${ids}-tax`}>
+          <Input id={`${ids}-tax`} inputMode="decimal" placeholder="0" value={commissionTax} onChange={(e) => setCommissionTax(e.target.value)} />
+        </FormField>
+        <FormField label="Notas" htmlFor={`${ids}-notes`} className="sm:col-span-2 lg:col-span-3">
+          <Input id={`${ids}-notes`} maxLength={200} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </FormField>
+        <CheckboxField label="Por revisar" className="self-end pb-2" checked={needsReview} onChange={(e) => setNeedsReview(e.target.checked)} />
+      </FormGrid>
+      <ErrorAlert error={error} />
+      <div className="flex flex-wrap justify-end gap-2">
         {editing && onCancel && (
-          <button type="button" className="secondary" onClick={onCancel}>
+          <Button type="button" variant="outline" onClick={onCancel}>
             Cancelar edición
-          </button>
+          </Button>
         )}
-        <button type="submit" disabled={submitting}>
+        <Button type="submit" disabled={submitting}>
           {submitting ? 'Guardando…' : editing ? 'Guardar cambios' : side === 'BUY' ? 'Registrar compra' : 'Registrar venta'}
-        </button>
+        </Button>
       </div>
     </form>
   );

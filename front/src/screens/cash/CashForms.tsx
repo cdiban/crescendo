@@ -1,6 +1,10 @@
 import { useId, useState, type FormEvent } from 'react';
 import type { Account, Api, CashMovement, CashTransfer, Currency } from '../../api/client.ts';
+import { FormField, FormGrid } from '../../components/form.tsx';
 import { ErrorAlert } from '../../components/ui.tsx';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { normalizeDecimal } from '../../lib/format.ts';
 import { CURRENCIES, MANUAL_MOVEMENT_TYPES, MOVEMENT_TYPE } from '../../lib/labels.ts';
 import { today } from '../../lib/useAsync.ts';
@@ -34,11 +38,11 @@ function useSubmit<T>(run: () => Promise<T> | string, onDone: (result: T) => voi
 function AccountOptions({ accounts }: { accounts: Account[] }) {
   return (
     <>
-      <option value="">Elige…</option>
+      <NativeSelectOption value="">Elige…</NativeSelectOption>
       {accounts.map((a) => (
-        <option key={a.id} value={a.id}>
+        <NativeSelectOption key={a.id} value={a.id}>
           {a.name}
-        </option>
+        </NativeSelectOption>
       ))}
     </>
   );
@@ -46,9 +50,9 @@ function AccountOptions({ accounts }: { accounts: Account[] }) {
 
 function CurrencyOptions() {
   return CURRENCIES.map((c) => (
-    <option key={c} value={c}>
+    <NativeSelectOption key={c} value={c}>
       {c}
-    </option>
+    </NativeSelectOption>
   ));
 }
 
@@ -80,57 +84,55 @@ export function MovementForm({ api, accounts, onSaved }: { api: Api; accounts: A
   );
 
   return (
-    <form className="form-grid" aria-label="Nuevo movimiento" onSubmit={handleSubmit} noValidate aria-busy={submitting}>
-      <div className="field">
-        <label htmlFor={`${ids}-account`}>Cuenta</label>
-        <select
-          id={`${ids}-account`}
-          value={accountId}
-          onChange={(e) => {
-            setAccountId(e.target.value);
-            const account = active.find((a) => a.id === e.target.value);
-            if (account) setCurrency(account.baseCurrency);
-          }}
+    <form className="grid gap-4" aria-label="Nuevo movimiento" onSubmit={handleSubmit} noValidate aria-busy={submitting}>
+      <FormGrid className="lg:grid-cols-3">
+        <FormField label="Cuenta" htmlFor={`${ids}-account`}>
+          <NativeSelect
+            id={`${ids}-account`}
+            className="w-full"
+            value={accountId}
+            onChange={(e) => {
+              setAccountId(e.target.value);
+              const account = active.find((a) => a.id === e.target.value);
+              if (account) setCurrency(account.baseCurrency);
+            }}
+          >
+            <AccountOptions accounts={active} />
+          </NativeSelect>
+        </FormField>
+        <FormField label="Tipo" htmlFor={`${ids}-type`}>
+          <NativeSelect id={`${ids}-type`} className="w-full" value={type} onChange={(e) => setType(e.target.value as ManualType)}>
+            {MANUAL_MOVEMENT_TYPES.map((t) => (
+              <NativeSelectOption key={t} value={t}>
+                {MOVEMENT_TYPE[t]}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </FormField>
+        <FormField label="Fecha" htmlFor={`${ids}-date`}>
+          <Input id={`${ids}-date`} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </FormField>
+        <FormField
+          label="Monto"
+          htmlFor={`${ids}-amount`}
+          hint={type === 'ADJUSTMENT' ? 'Con signo: negativo resta.' : 'Positivo; retiros y comisiones restan.'}
         >
-          <AccountOptions accounts={active} />
-        </select>
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-type`}>Tipo</label>
-        <select id={`${ids}-type`} value={type} onChange={(e) => setType(e.target.value as ManualType)}>
-          {MANUAL_MOVEMENT_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {MOVEMENT_TYPE[t]}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-date`}>Fecha</label>
-        <input id={`${ids}-date`} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-amount`}>Monto</label>
-        <input id={`${ids}-amount`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        <small className="muted">{type === 'ADJUSTMENT' ? 'Con signo: negativo resta.' : 'Positivo; retiros y comisiones restan.'}</small>
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-currency`}>Moneda</label>
-        <select id={`${ids}-currency`} value={currency} onChange={(e) => setCurrency(e.target.value as Currency)}>
-          <CurrencyOptions />
-        </select>
-      </div>
-      <div className="field span-2">
-        <label htmlFor={`${ids}-desc`}>Descripción</label>
-        <input id={`${ids}-desc`} maxLength={200} value={description} onChange={(e) => setDescription(e.target.value)} />
-      </div>
-      <div className="span-all">
-        <ErrorAlert error={error} />
-      </div>
-      <div className="actions span-all">
-        <button type="submit" disabled={submitting}>
+          <Input id={`${ids}-amount`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </FormField>
+        <FormField label="Moneda" htmlFor={`${ids}-currency`}>
+          <NativeSelect id={`${ids}-currency`} className="w-full" value={currency} onChange={(e) => setCurrency(e.target.value as Currency)}>
+            <CurrencyOptions />
+          </NativeSelect>
+        </FormField>
+        <FormField label="Descripción" htmlFor={`${ids}-desc`}>
+          <Input id={`${ids}-desc`} maxLength={200} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </FormField>
+      </FormGrid>
+      <ErrorAlert error={error} />
+      <div className="flex justify-end">
+        <Button type="submit" disabled={submitting}>
           {submitting ? 'Guardando…' : 'Registrar movimiento'}
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -180,68 +182,62 @@ export function TransferForm({ api, accounts, onSaved }: { api: Api; accounts: A
   );
 
   return (
-    <form className="form-grid" aria-label="Transferencia o conversión" onSubmit={handleSubmit} noValidate aria-busy={submitting}>
-      <div className="field">
-        <label htmlFor={`${ids}-date`}>Fecha</label>
-        <input id={`${ids}-date`} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-from`}>Cuenta origen</label>
-        <select
-          id={`${ids}-from`}
-          value={fromAccountId}
-          onChange={(e) => {
-            setFromAccountId(e.target.value);
-            setFromCurrency(baseOf(e.target.value) ?? fromCurrency);
-          }}
-        >
-          <AccountOptions accounts={active} />
-        </select>
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-from-cur`}>Moneda origen</label>
-        <select id={`${ids}-from-cur`} value={fromCurrency} onChange={(e) => setFromCurrency(e.target.value as Currency)}>
-          <CurrencyOptions />
-        </select>
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-from-amt`}>Monto origen</label>
-        <input id={`${ids}-from-amt`} inputMode="decimal" value={fromAmount} onChange={(e) => setFromAmount(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-to`}>Cuenta destino</label>
-        <select
-          id={`${ids}-to`}
-          value={toAccountId}
-          onChange={(e) => {
-            setToAccountId(e.target.value);
-            setToCurrency(baseOf(e.target.value) ?? toCurrency);
-          }}
-        >
-          <AccountOptions accounts={active} />
-        </select>
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-to-cur`}>Moneda destino</label>
-        <select id={`${ids}-to-cur`} value={toCurrency} onChange={(e) => setToCurrency(e.target.value as Currency)}>
-          <CurrencyOptions />
-        </select>
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-to-amt`}>Monto destino</label>
-        <input id={`${ids}-to-amt`} inputMode="decimal" value={toAmount} onChange={(e) => setToAmount(e.target.value)} />
-      </div>
-      <div className="field span-2">
-        <label htmlFor={`${ids}-desc`}>Descripción</label>
-        <input id={`${ids}-desc`} maxLength={200} value={description} onChange={(e) => setDescription(e.target.value)} />
-      </div>
-      <div className="span-all">
-        <ErrorAlert error={error} />
-      </div>
-      <div className="actions span-all">
-        <button type="submit" disabled={submitting}>
+    <form className="grid gap-4" aria-label="Transferencia o conversión" onSubmit={handleSubmit} noValidate aria-busy={submitting}>
+      <FormGrid className="lg:grid-cols-3">
+        <FormField label="Fecha" htmlFor={`${ids}-date`} className="sm:col-span-2 lg:col-span-3 lg:w-1/3">
+          <Input id={`${ids}-date`} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </FormField>
+        <FormField label="Cuenta origen" htmlFor={`${ids}-from`}>
+          <NativeSelect
+            id={`${ids}-from`}
+            className="w-full"
+            value={fromAccountId}
+            onChange={(e) => {
+              setFromAccountId(e.target.value);
+              setFromCurrency(baseOf(e.target.value) ?? fromCurrency);
+            }}
+          >
+            <AccountOptions accounts={active} />
+          </NativeSelect>
+        </FormField>
+        <FormField label="Moneda origen" htmlFor={`${ids}-from-cur`}>
+          <NativeSelect id={`${ids}-from-cur`} className="w-full" value={fromCurrency} onChange={(e) => setFromCurrency(e.target.value as Currency)}>
+            <CurrencyOptions />
+          </NativeSelect>
+        </FormField>
+        <FormField label="Monto origen" htmlFor={`${ids}-from-amt`}>
+          <Input id={`${ids}-from-amt`} inputMode="decimal" value={fromAmount} onChange={(e) => setFromAmount(e.target.value)} />
+        </FormField>
+        <FormField label="Cuenta destino" htmlFor={`${ids}-to`}>
+          <NativeSelect
+            id={`${ids}-to`}
+            className="w-full"
+            value={toAccountId}
+            onChange={(e) => {
+              setToAccountId(e.target.value);
+              setToCurrency(baseOf(e.target.value) ?? toCurrency);
+            }}
+          >
+            <AccountOptions accounts={active} />
+          </NativeSelect>
+        </FormField>
+        <FormField label="Moneda destino" htmlFor={`${ids}-to-cur`}>
+          <NativeSelect id={`${ids}-to-cur`} className="w-full" value={toCurrency} onChange={(e) => setToCurrency(e.target.value as Currency)}>
+            <CurrencyOptions />
+          </NativeSelect>
+        </FormField>
+        <FormField label="Monto destino" htmlFor={`${ids}-to-amt`}>
+          <Input id={`${ids}-to-amt`} inputMode="decimal" value={toAmount} onChange={(e) => setToAmount(e.target.value)} />
+        </FormField>
+        <FormField label="Descripción" htmlFor={`${ids}-desc`} className="sm:col-span-2 lg:col-span-3">
+          <Input id={`${ids}-desc`} maxLength={200} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </FormField>
+      </FormGrid>
+      <ErrorAlert error={error} />
+      <div className="flex justify-end">
+        <Button type="submit" disabled={submitting}>
           {submitting ? 'Guardando…' : 'Registrar transferencia'}
-        </button>
+        </Button>
       </div>
     </form>
   );

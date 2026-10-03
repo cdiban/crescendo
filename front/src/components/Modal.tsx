@@ -1,55 +1,41 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-import { errorMessage } from '../api/errors.ts';
-
-const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+import { useState, type ReactNode } from 'react';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
+import { ErrorAlert } from './ui.tsx';
 
 type ModalProps = {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 };
 
-/** Diálogo modal propio: foco inicial dentro, trampa de Tab, Escape cierra y devuelve el foco al salir. */
-export function Modal({ title, onClose, children }: ModalProps) {
-  const titleId = useId();
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    ref.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
-    return () => previous?.focus?.();
-  }, []);
-
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Escape') {
-      event.stopPropagation();
-      onClose();
-      return;
-    }
-    if (event.key !== 'Tab' || !ref.current) return;
-    const items = [...ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
-    if (items.length === 0) return;
-    const first = items[0]!;
-    const last = items[items.length - 1]!;
-    const active = document.activeElement;
-    if (event.shiftKey && (active === first || !ref.current.contains(active))) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && (active === last || !ref.current.contains(active))) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  return createPortal(
-    <div className="modal-backdrop">
-      <div ref={ref} className="modal" role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={handleKeyDown}>
-        <h2 id={titleId}>{title}</h2>
+/**
+ * Diálogo para formularios (Dialog de Base UI): foco inicial dentro, trampa de foco, Escape cierra y devuelve el foco.
+ * Se monta abierto; quien lo usa lo desmonta en onClose.
+ */
+export function Modal({ title, onClose, children, className }: ModalProps) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        className={cn('max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl', className)}
+        closeLabel="Cerrar"
+      >
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
         {children}
-      </div>
-    </div>,
-    document.body,
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -60,12 +46,15 @@ type ConfirmProps = {
   onConfirm: () => Promise<unknown> | void;
   onClose: () => void;
   danger?: boolean;
+  /** "alert" (por defecto): confirmación (AlertDialog). "form": edición breve (Dialog) con el mismo comportamiento. */
+  variant?: 'alert' | 'form';
   children?: ReactNode;
 };
 
-export function ConfirmDialog({ title, confirmLabel, onConfirm, onClose, danger, children }: ConfirmProps) {
+/** Confirmación o formulario breve. Mientras la acción corre no se puede cerrar; si falla, muestra el error y sigue abierto. */
+export function ConfirmDialog({ title, confirmLabel, onConfirm, onClose, danger, variant = 'alert', children }: ConfirmProps) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   async function handleConfirm() {
     setBusy(true);
@@ -74,27 +63,54 @@ export function ConfirmDialog({ title, confirmLabel, onConfirm, onClose, danger,
       await onConfirm();
       onClose();
     } catch (err) {
-      setError(errorMessage(err));
+      setError(err);
       setBusy(false);
     }
   }
 
-  return (
-    <Modal title={title} onClose={busy ? () => {} : onClose}>
+  const body = (
+    <div className="grid gap-3 text-sm">
       {children}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <div className="actions">
-        <button type="button" className="secondary" onClick={onClose} disabled={busy}>
-          Cancelar
-        </button>
-        <button type="button" className={danger ? 'danger' : undefined} onClick={handleConfirm} disabled={busy}>
-          {confirmLabel}
-        </button>
-      </div>
-    </Modal>
+      <ErrorAlert error={error} />
+    </div>
+  );
+  const confirm = (
+    <Button variant={danger ? 'destructive' : 'default'} onClick={handleConfirm} disabled={busy}>
+      {confirmLabel}
+    </Button>
+  );
+
+  if (variant === 'form') {
+    return (
+      <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+          </DialogHeader>
+          {body}
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose} disabled={busy}>
+              Cancelar
+            </Button>
+            {confirm}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <AlertDialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
+        <AlertDialogHeader className="place-items-start text-left">
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+        </AlertDialogHeader>
+        {body}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancelar</AlertDialogCancel>
+          {confirm}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

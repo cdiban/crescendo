@@ -51,6 +51,7 @@ describe('DividendsScreen', () => {
     mockFetch(baseRoutes());
     render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
 
+    fireEvent.click(await screen.findByRole('tab', { name: 'Resumen mensual' }));
     const usd = await within(await screen.findByRole('region', { name: 'Resumen mensual USD' })).findByRole('table');
     const koRow = within(usd).getByRole('row', { name: /KO/ });
     expect(nbsp(koRow.textContent)).toBe('KO———US$4,34——US$4,34—————US$8,68');
@@ -64,6 +65,7 @@ describe('DividendsScreen', () => {
     mockFetch(baseRoutes());
     render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
 
+    fireEvent.click(await screen.findByRole('tab', { name: 'Resumen mensual' }));
     const region = await screen.findByRole('region', { name: 'Resumen mensual en USD' });
     const row = within(region).getByRole('row', { name: /Total en USD/ });
     expect(nbsp(row.textContent)).toBe('Total en USD———US$4,34US$98,71—US$4,34—————US$107,39');
@@ -76,6 +78,7 @@ describe('DividendsScreen', () => {
     const fetchMock = mockFetch(baseRoutes());
     const api = createApi();
     const { rerender } = render(<DividendsScreen api={api} reportingCurrency="USD" />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Resumen mensual' }));
     await screen.findByRole('region', { name: 'Resumen mensual en USD' });
 
     rerender(<DividendsScreen api={api} reportingCurrency="CLP" />);
@@ -110,13 +113,13 @@ describe('DividendsScreen', () => {
     render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Marcar pagado' }));
 
-    const dialog = screen.getByRole('dialog', { name: /Marcar pagado: KO/ });
+    const dialog = await screen.findByRole('alertdialog', { name: /Marcar pagado: KO/ });
     expect((within(dialog).getByLabelText('Fecha de pago') as HTMLInputElement).value).toBe('2026-12-15');
     fireEvent.change(within(dialog).getByLabelText(/Neto recibido/), { target: { value: '4,50' } });
     const before = fetchMock.mock.calls.length;
     fireEvent.click(within(dialog).getByRole('button', { name: 'Marcar pagado' }));
 
-    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await vi.waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
     const post = fetchMock.mock.calls.findIndex(([, init]) => init?.method === 'POST');
     expect(sentBody(fetchMock, post)).toEqual({ paymentDate: '2026-12-15', netAmount: '4.50' });
     await vi.waitFor(() => {
@@ -130,7 +133,7 @@ describe('DividendsScreen', () => {
     const fetchMock = mockFetch(baseRoutes());
     render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Marcar pagado' }));
-    const dialog = screen.getByRole('dialog');
+    const dialog = await screen.findByRole('alertdialog');
     fireEvent.change(within(dialog).getByLabelText(/Neto recibido/), { target: { value: 'cuatro' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Marcar pagado' }));
 
@@ -142,9 +145,9 @@ describe('DividendsScreen', () => {
     mockFetch([...baseRoutes(), { method: 'POST', path: `/api/v1/dividends/${announced.id}/mark-paid`, ...problem(422, 'INVALID_STATE') }]);
     render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Marcar pagado' }));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Marcar pagado' }));
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Marcar pagado' }));
 
-    expect((await within(screen.getByRole('dialog')).findByRole('alert')).textContent).toMatch(/estado/);
+    expect((await within(screen.getByRole('alertdialog')).findByRole('alert')).textContent).toMatch(/estado/);
   });
 
   it('borrar pide confirmación y refresca', async () => {
@@ -153,12 +156,12 @@ describe('DividendsScreen', () => {
     await screen.findAllByText('01-07-2026');
 
     fireEvent.click(within(within(list()).getAllByRole('row')[2]!).getByRole('button', { name: 'Borrar' }));
-    const dialog = screen.getByRole('dialog', { name: /Borrar dividendo/ });
+    const dialog = await screen.findByRole('alertdialog', { name: /Borrar dividendo/ });
     expect(dialog.textContent).toMatch(/movimiento de caja/);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Borrar' }));
 
     await vi.waitFor(() => expect(calls(fetchMock)).toContain(`DELETE /api/v1/dividends/${paid.id}`));
-    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await vi.waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
   });
 
   it('editar abre el formulario con el dividendo y guarda con PUT', async () => {
@@ -167,7 +170,7 @@ describe('DividendsScreen', () => {
     await screen.findAllByText('01-07-2026');
 
     fireEvent.click(within(within(list()).getAllByRole('row')[2]!).getByRole('button', { name: 'Editar' }));
-    const dialog = screen.getByRole('dialog', { name: /Editar dividendo/ });
+    const dialog = await screen.findByRole('dialog', { name: /Editar dividendo/ });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }));
 
     await vi.waitFor(() => expect(calls(fetchMock)).toContain(`PUT /api/v1/dividends/${paid.id}`));
@@ -180,10 +183,12 @@ describe('DividendsScreen', () => {
     render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     await screen.findAllByText('15-12-2026');
 
-    fireEvent.change(screen.getByLabelText('Instrumento', { selector: 'input' }), { target: { value: 'KO' } });
-    fireEvent.change(screen.getByLabelText('Monto bruto'), { target: { value: '5.1' } });
-    const before = fetchMock.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Registrar dividendo' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Registrar dividendo' }));
+    fireEvent.change(dialog.getByLabelText('Instrumento'), { target: { value: 'KO' } });
+    fireEvent.change(dialog.getByLabelText('Monto bruto'), { target: { value: '5.1' } });
+    const before = fetchMock.mock.calls.length;
+    fireEvent.click(dialog.getByRole('button', { name: 'Registrar dividendo' }));
 
     expect(nbsp((await screen.findByRole('status')).textContent)).toMatch(/KO.*Pagado.*neto US\$4,34/);
     await vi.waitFor(() => expect(calls(fetchMock).slice(before + 1).some((c) => c.startsWith('GET /api/v1/dividends/summary'))).toBe(true));

@@ -20,7 +20,11 @@ function routes(extra: Parameters<typeof mockFetch>[0] = []) {
     ...extra,
   ];
 }
-const form = () => screen.getByRole('form', { name: 'Nueva operación' });
+/** Abre el diálogo "Nueva operación" y devuelve consultas dentro del formulario. */
+async function openForm() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Nueva operación' }));
+  return within(await screen.findByRole('form', { name: 'Nueva operación' }));
+}
 
 describe('TradesScreen', () => {
   beforeEach(() => {
@@ -60,7 +64,7 @@ describe('TradesScreen', () => {
     render(<TradesScreen api={createApi()} />);
     await screen.findByRole('region', { name: 'Operaciones' });
 
-    const f = within(form());
+    const f = await openForm();
     fireEvent.change(f.getByLabelText('Cuenta'), { target: { value: IB } });
     fireEvent.change(f.getByLabelText('Instrumento'), { target: { value: KO } });
     fireEvent.change(f.getByLabelText('Fecha'), { target: { value: '2026-10-01' } });
@@ -84,7 +88,7 @@ describe('TradesScreen', () => {
     render(<TradesScreen api={createApi()} />);
     await screen.findByRole('region', { name: 'Operaciones' });
 
-    const f = within(form());
+    const f = await openForm();
     fireEvent.click(f.getByLabelText('Venta'));
     fireEvent.change(f.getByLabelText('Cuenta'), { target: { value: IB } });
     fireEvent.change(f.getByLabelText('Instrumento'), { target: { value: KO } });
@@ -98,7 +102,7 @@ describe('TradesScreen', () => {
   it('valida cantidades y precios antes de enviar', async () => {
     const fetchMock = mockFetch(routes());
     render(<TradesScreen api={createApi()} />);
-    const f = within(await screen.findByRole('form', { name: 'Nueva operación' }));
+    const f = await openForm();
     fireEvent.change(f.getByLabelText('Cuenta'), { target: { value: IB } });
     fireEvent.change(f.getByLabelText('Instrumento'), { target: { value: KO } });
     fireEvent.change(f.getByLabelText('Cantidad'), { target: { value: '0' } });
@@ -115,7 +119,7 @@ describe('TradesScreen', () => {
     const rows = within(await screen.findByRole('region', { name: 'Operaciones' })).getAllByRole('row');
 
     fireEvent.click(within(rows[1]!).getByRole('button', { name: 'Editar' }));
-    const dialog = within(screen.getByRole('dialog', { name: /Editar operación/ }));
+    const dialog = within(await screen.findByRole('dialog', { name: /Editar operación/ }));
     expect((dialog.getByLabelText('Precio') as HTMLInputElement).value).toBe('1210.5');
     expect((dialog.getByLabelText('Venta') as HTMLInputElement).checked).toBe(true);
     fireEvent.click(dialog.getByLabelText('Por revisar'));
@@ -134,7 +138,7 @@ describe('TradesScreen', () => {
     const rows = within(await screen.findByRole('region', { name: 'Operaciones' })).getAllByRole('row');
 
     fireEvent.click(within(rows[2]!).getByRole('button', { name: 'Borrar' }));
-    const dialog = screen.getByRole('dialog', { name: /Borrar operación/ });
+    const dialog = await screen.findByRole('alertdialog', { name: /Borrar operación/ });
     expect(dialog.textContent).toMatch(/Compra de 115 PEHUENCHE/);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Borrar' }));
 

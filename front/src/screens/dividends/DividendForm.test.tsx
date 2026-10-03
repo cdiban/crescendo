@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { DividendForm } from './DividendForm.tsx';
 import { createApi } from '../../api/client.ts';
 import { mockFetch, problem, sentBody } from '../../test/http.ts';
+import { typeInto } from '../../test/user.ts';
 import { BITO, IB, ITAU, KO, PEHUENCHE, accounts, dividend, instruments, positionsByAccount } from '../../test/fixtures.ts';
 
 const change = (label: string | RegExp, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
@@ -28,10 +29,26 @@ describe('DividendForm', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('ofrece autocompletar con las posiciones abiertas', () => {
+  it('ofrece autocompletar (combobox) con las posiciones abiertas', async () => {
     renderForm();
-    const options = [...document.querySelectorAll('datalist option')].map((o) => (o as HTMLOptionElement).value);
-    expect(options).toEqual(['PEHUENCHE · XSGO', 'KO · US', 'BITO · US']);
+    const input = screen.getByRole('combobox', { name: 'Instrumento' });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+    const options = await screen.findAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual([
+      'PEHUENCHE · XSGOPehuenche — 115 acciones',
+      'KO · USCoca-Cola — 10,5 acciones',
+      'BITO · USBITO — 3 acciones',
+    ]);
+  });
+
+  it('elegir una opción del combobox resuelve el instrumento y sugiere la cuenta', async () => {
+    renderForm();
+    typeInto(screen.getByRole('combobox', { name: 'Instrumento' }), 'ko');
+    fireEvent.click(await screen.findByRole('option', { name: /^KO · US/ }));
+
+    await vi.waitFor(() => expect(value('Cuenta')).toBe(IB));
+    expect(value('Retención (%)')).toBe('15');
   });
 
   it('al elegir el instrumento sugiere la cuenta de la posición y precarga la retención efectiva', () => {

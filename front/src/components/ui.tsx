@@ -1,52 +1,53 @@
 import type { ReactNode } from 'react';
+import { CircleAlert } from 'lucide-react';
 import type { Currency } from '../api/client.ts';
 import { errorMessage } from '../api/errors.ts';
 import { formatMoney } from '../lib/format.ts';
+import { Badge as UiBadge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 
-/** Tabla con scroll horizontal propio: en móvil se desplaza la tabla, no la página. */
-export function TableWrap({ label, compact, children }: { label: string; compact?: boolean; children: ReactNode }) {
-  return (
-    <div className={compact ? 'table-wrap compact' : 'table-wrap'} role="region" aria-label={label} tabIndex={0}>
-      <table>{children}</table>
-    </div>
-  );
-}
-
-export function ErrorAlert({ error, id }: { error: unknown; id?: string }) {
+export function ErrorAlert({ error, id, className }: { error: unknown; id?: string; className?: string }) {
   if (!error) return null;
   return (
-    <p role="alert" className="error" id={id}>
-      {typeof error === 'string' ? error : errorMessage(error)}
+    <p
+      role="alert"
+      id={id}
+      className={cn('flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive', className)}
+    >
+      <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <span>{typeof error === 'string' ? error : errorMessage(error)}</span>
     </p>
   );
 }
 
-export function Loading() {
-  return <p className="muted" aria-busy="true">Cargando…</p>;
-}
-
-export function Badge({ children, tone = 'warn' }: { children: ReactNode; tone?: 'warn' | 'ok' | 'info' }) {
-  return <span className={`badge badge-${tone}`}>{children}</span>;
-}
-
-type PagerProps = { offset: number; limit: number; total: number; onChange: (offset: number) => void };
-
-export function Pager({ offset, limit, total, onChange }: PagerProps) {
-  if (total <= limit) return null;
-  const from = offset + 1;
-  const to = Math.min(offset + limit, total);
+/** Mensaje de éxito anunciado a lectores de pantalla. */
+export function Success({ children }: { children: ReactNode }) {
   return (
-    <nav className="pager" aria-label="Paginación">
-      <button type="button" className="secondary" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - limit))}>
-        Anterior
-      </button>
-      <span>
-        {from}–{to} de {total}
-      </span>
-      <button type="button" className="secondary" disabled={to >= total} onClick={() => onChange(offset + limit)}>
-        Siguiente
-      </button>
-    </nav>
+    <p role="status" className="rounded-lg bg-positive/10 px-3 py-2 text-sm font-medium text-positive">
+      {children}
+    </p>
+  );
+}
+
+export function Loading({ lines = 3 }: { lines?: number }) {
+  return (
+    <div aria-busy="true" className="grid gap-2">
+      <span className="sr-only">Cargando…</span>
+      {Array.from({ length: lines }, (_, i) => (
+        <Skeleton key={i} className="h-6 w-full" />
+      ))}
+    </div>
+  );
+}
+
+const TONE = { warn: 'warning', ok: 'success', info: 'info' } as const;
+
+export function Badge({ children, tone = 'warn', title }: { children: ReactNode; tone?: keyof typeof TONE; title?: string }) {
+  return (
+    <UiBadge variant={TONE[tone]} title={title}>
+      {children}
+    </UiBadge>
   );
 }
 
@@ -63,5 +64,22 @@ export function isZero(decimal: string): boolean {
 /** Monto formateado; rojo si es negativo y verde si es positivo (se mira el signo del string, sin convertir). */
 export function Signed({ amount, currency, colorPositive = false }: { amount: string; currency: Currency; colorPositive?: boolean }) {
   const tone = isZero(amount) ? undefined : amount.startsWith('-') ? 'negative' : colorPositive ? 'positive' : undefined;
-  return <span className={tone}>{formatMoney(amount, currency)}</span>;
+  return (
+    <span data-tone={tone} className={cn(tone === 'negative' && 'text-negative', tone === 'positive' && 'text-positive')}>
+      {formatMoney(amount, currency)}
+    </span>
+  );
+}
+
+/** Encabezado de pantalla: título, descripción opcional y acciones a la derecha. */
+export function PageHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="min-w-0">
+        <h1 className="font-heading text-xl font-semibold tracking-tight">{title}</h1>
+        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  );
 }

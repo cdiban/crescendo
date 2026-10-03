@@ -64,7 +64,7 @@ describe('SummaryScreen', () => {
     const exposure = await screen.findByRole('region', { name: 'Exposición por moneda' });
     const items = within(exposure).getAllByRole('listitem');
     expect(items.map(text)).toEqual(['CLP43,02%US$27.500,30', 'USD56,98%US$36.434,30']);
-    const bar = items[0]!.querySelector('.bar-fill') as HTMLElement;
+    const bar = items[0]!.querySelector('[data-slot=exposure-bar]') as HTMLElement;
     expect(bar.style.getPropertyValue('--w')).toBe('0.4302');
     expect(within(exposure).getAllByRole('meter')[0]!.getAttribute('aria-valuenow')).toBe('0.4302');
   });

@@ -19,6 +19,11 @@ function routes(extra: Parameters<typeof mockFetch>[0] = []) {
   ];
 }
 const movementsTable = () => screen.getByRole('region', { name: 'Movimientos de caja' });
+/** Abre el diálogo del formulario y devuelve consultas dentro de él. */
+async function openForm(button: string, form: string) {
+  fireEvent.click(await screen.findByRole('button', { name: button }));
+  return within(await screen.findByRole('form', { name: form }));
+}
 const rowOf = (pattern: RegExp) => {
   const row = within(movementsTable()).getAllByRole('row').find((r) => pattern.test(text(r)));
   if (!row) throw new Error(`sin fila ${pattern}`);
@@ -66,14 +71,14 @@ describe('CashScreen', () => {
     expect(text(rowOf(/Aporte inferido/))).toMatch(/Importación/);
 
     fireEvent.click(within(rowOf(/Conversión/)).getByRole('button', { name: 'Borrar transferencia' }));
-    let dialog = screen.getByRole('dialog', { name: 'Borrar transferencia' });
+    let dialog = await screen.findByRole('alertdialog', { name: 'Borrar transferencia' });
     expect(dialog.textContent).toMatch(/ambos movimientos/);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Borrar' }));
     await vi.waitFor(() => expect(calls(fetchMock)).toContain('DELETE /api/v1/cash-transfers/x1'));
-    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await vi.waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
 
     fireEvent.click(within(rowOf(/DepósitoAporte\$/)).getByRole('button', { name: 'Borrar' }));
-    dialog = screen.getByRole('dialog', { name: 'Borrar movimiento' });
+    dialog = await screen.findByRole('alertdialog', { name: 'Borrar movimiento' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Borrar' }));
     await vi.waitFor(() => expect(calls(fetchMock)).toContain(`DELETE /api/v1/cash-movements/${deposit.id}`));
   });
@@ -93,7 +98,7 @@ describe('CashScreen', () => {
   it('registra un depósito: la moneda parte en la base de la cuenta y se refrescan saldos y movimientos', async () => {
     const fetchMock = mockFetch(routes([{ method: 'POST', path: '/api/v1/cash-movements', status: 201, body: deposit }]));
     render(<CashScreen api={createApi()} />);
-    const form = within(await screen.findByRole('form', { name: 'Nuevo movimiento' }));
+    const form = await openForm('Nuevo movimiento', 'Nuevo movimiento');
 
     fireEvent.change(form.getByLabelText('Cuenta'), { target: { value: ITAU } });
     expect((form.getByLabelText('Moneda') as HTMLSelectElement).value).toBe('CLP');
@@ -117,7 +122,7 @@ describe('CashScreen', () => {
   it('un ajuste admite monto negativo; un depósito no', async () => {
     const fetchMock = mockFetch(routes([{ method: 'POST', path: '/api/v1/cash-movements', status: 201, body: deposit }]));
     render(<CashScreen api={createApi()} />);
-    const form = within(await screen.findByRole('form', { name: 'Nuevo movimiento' }));
+    const form = await openForm('Nuevo movimiento', 'Nuevo movimiento');
     fireEvent.change(form.getByLabelText('Cuenta'), { target: { value: ITAU } });
     fireEvent.change(form.getByLabelText('Monto'), { target: { value: '-10' } });
     fireEvent.click(form.getByRole('button', { name: 'Registrar movimiento' }));
@@ -132,7 +137,7 @@ describe('CashScreen', () => {
   it('muestra ACCOUNT_ARCHIVED al registrar en una cuenta archivada', async () => {
     mockFetch(routes([{ method: 'POST', path: '/api/v1/cash-movements', ...problem(422, 'ACCOUNT_ARCHIVED') }]));
     render(<CashScreen api={createApi()} />);
-    const form = within(await screen.findByRole('form', { name: 'Nuevo movimiento' }));
+    const form = await openForm('Nuevo movimiento', 'Nuevo movimiento');
     // Las archivadas no se ofrecen; el 422 igual se muestra si el servidor lo devuelve.
     expect([...(form.getByLabelText('Cuenta') as HTMLSelectElement).options].map((o) => o.value)).not.toContain(ZESTY);
     fireEvent.change(form.getByLabelText('Cuenta'), { target: { value: ITAU } });
@@ -144,7 +149,7 @@ describe('CashScreen', () => {
   it('una transferencia en la misma moneda exige montos iguales y la conversión en la misma cuenta otra moneda', async () => {
     const fetchMock = mockFetch(routes([{ method: 'POST', path: '/api/v1/cash-transfers', ...problem(422, 'CURRENCY_MISMATCH') }]));
     render(<CashScreen api={createApi()} />);
-    const form = within(await screen.findByRole('form', { name: 'Transferencia o conversión' }));
+    const form = await openForm('Transferencia', 'Transferencia o conversión');
 
     fireEvent.change(form.getByLabelText('Cuenta origen'), { target: { value: ITAU } });
     fireEvent.change(form.getByLabelText('Monto origen'), { target: { value: '1000' } });
@@ -175,7 +180,7 @@ describe('CashScreen', () => {
       ]),
     );
     render(<CashScreen api={createApi()} />);
-    const form = within(await screen.findByRole('form', { name: 'Transferencia o conversión' }));
+    const form = await openForm('Transferencia', 'Transferencia o conversión');
 
     fireEvent.change(form.getByLabelText('Cuenta origen'), { target: { value: IB } });
     fireEvent.change(form.getByLabelText('Moneda origen'), { target: { value: 'CLP' } });

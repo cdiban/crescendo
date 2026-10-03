@@ -15,11 +15,11 @@ describe('PositionsScreen', () => {
     ]);
     render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
 
-    const clp = await screen.findByRole('region', { name: 'Posiciones CLP' });
-    const usd = screen.getByRole('region', { name: 'Posiciones USD' });
+    const clp = await screen.findByRole('rowgroup', { name: 'Posiciones CLP' });
+    const usd = screen.getByRole('rowgroup', { name: 'Posiciones USD' });
     expect(calls(fetchMock)).toContain('GET /api/v1/positions?groupBy=instrument&reportingCurrency=USD');
 
-    const headers = within(clp).getAllByRole('columnheader').map((h) => h.textContent);
+    const headers = within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('columnheader').map((h) => h.textContent);
     expect(headers).toEqual(['Instrumento', 'Cantidad', 'Costo promedio', 'Invertido', 'Costo en USD', 'Efecto cambiario (USD)', 'Ganancia realizada', 'Div. cobrados (neto)', 'Ingreso anual esperado', 'Yield on cost', 'Meses de pago']);
 
     expect(text(within(clp).getByRole('row', { name: /PEHUENCHE/ }))).toBe('PEHUENCHEPehuenche115$2.607,8$299.897US$318,12US$-12,62$0$93.178$30.59010,2%may, dic');
@@ -35,9 +35,9 @@ describe('PositionsScreen', () => {
     ]);
     render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
 
-    const clp = await screen.findByRole('region', { name: 'Posiciones CLP' });
+    const clp = await screen.findByRole('rowgroup', { name: 'Posiciones CLP' });
     expect(text(within(clp).getByRole('row', { name: /Total CLP/ }))).toBe('Total CLP$299.897$193.811$93.178$30.590');
-    const usd = screen.getByRole('region', { name: 'Posiciones USD' });
+    const usd = screen.getByRole('rowgroup', { name: 'Posiciones USD' });
     expect(text(within(usd).getByRole('row', { name: /Total USD/ }))).toBe('Total USDUS$691,30US$-1,33US$17,34US$21,42');
   });
 
@@ -84,7 +84,7 @@ describe('PositionsScreen', () => {
     ]);
     const api = createApi();
     const { rerender } = render(<PositionsScreen api={api} reportingCurrency="USD" />);
-    await screen.findByRole('region', { name: 'Posiciones CLP' });
+    await screen.findByRole('rowgroup', { name: 'Posiciones CLP' });
 
     rerender(<PositionsScreen api={api} reportingCurrency="CLP" />);
 
@@ -97,11 +97,11 @@ describe('PositionsScreen', () => {
       { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList() },
     ]);
     render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
-    await screen.findByRole('region', { name: 'Posiciones CLP' });
+    await screen.findByRole('rowgroup', { name: 'Posiciones CLP' });
 
     fireEvent.change(await screen.findByLabelText('Cuenta'), { target: { value: ITAU } });
 
-    await screen.findByRole('region', { name: 'Posiciones CLP' });
+    await screen.findByRole('rowgroup', { name: 'Posiciones CLP' });
     await vi.waitFor(() => expect(calls(fetchMock)).toContain(`GET /api/v1/positions?groupBy=instrument&accountId=${ITAU}&reportingCurrency=USD`));
   });
 
@@ -113,13 +113,13 @@ describe('PositionsScreen', () => {
       { method: 'GET', path: '/api/v1/positions?groupBy=instrument&includeClosed=true&reportingCurrency=USD', status: 200, body: positionList([...positionsByInstrument, closed]) },
     ]);
     render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
-    await screen.findByRole('region', { name: 'Posiciones CLP' });
+    await screen.findByRole('rowgroup', { name: 'Posiciones CLP' });
 
     fireEvent.click(screen.getByLabelText('Incluir cerradas'));
 
-    const row = await within(screen.getByRole('region', { name: 'Posiciones USD' })).findByRole('row', { name: /HDV/ });
+    const row = await within(screen.getByRole('rowgroup', { name: 'Posiciones USD' })).findByRole('row', { name: /HDV/ });
     expect(calls(fetchMock)).toContain('GET /api/v1/positions?groupBy=instrument&includeClosed=true&reportingCurrency=USD');
-    expect(row.className).toMatch(/closed/);
+    expect(row.hasAttribute('data-closed')).toBe(true);
     const gain = within(row).getByText('US$-1,33');
     expect(gain.className).toMatch(/negative/);
   });
@@ -131,7 +131,7 @@ describe('PositionsScreen', () => {
       { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList([monthly]) },
     ]);
     render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
-    const clp = await screen.findByRole('region', { name: 'Posiciones CLP' });
+    const clp = await screen.findByRole('rowgroup', { name: 'Posiciones CLP' });
     expect(text(within(clp).getByRole('row', { name: /PEHUENCHE/ }))).toMatch(/Todos$/);
   });
 

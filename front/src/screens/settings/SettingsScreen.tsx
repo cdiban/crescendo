@@ -1,21 +1,40 @@
 import { useId, useState, type FormEvent } from 'react';
+import { Plus, Search } from 'lucide-react';
 import type { Account, Api, Currency, Instrument, InstrumentType, Market } from '../../api/client.ts';
 import { InputError } from '../../api/errors.ts';
-import { ConfirmDialog } from '../../components/Modal.tsx';
-import { Badge, ErrorAlert, Loading, Pager, TableWrap } from '../../components/ui.tsx';
+import { DataTable, Pager } from '../../components/DataTable.tsx';
+import { FormField, FormGrid } from '../../components/form.tsx';
+import { ConfirmDialog, Modal } from '../../components/Modal.tsx';
+import { Badge, ErrorAlert, PageHeader } from '../../components/ui.tsx';
 import { formatMoney, formatPercent, fractionToPercent, normalizeDecimal, percentToFraction } from '../../lib/format.ts';
 import { CURRENCIES, INSTRUMENT_TYPE } from '../../lib/labels.ts';
 import { useAsync } from '../../lib/useAsync.ts';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const LIMIT = 100;
+const NUM = 'text-right tabular-nums';
 
 export function SettingsScreen({ api }: { api: Api }) {
   return (
-    <div className="screen">
-      <h1>Configuración</h1>
-      <AccountsSection api={api} />
-      <InstrumentsSection api={api} />
-    </div>
+    <>
+      <PageHeader title="Configuración" />
+      <Tabs defaultValue="accounts" className="min-h-0 flex-1 gap-3">
+        <TabsList>
+          <TabsTrigger value="accounts">Cuentas</TabsTrigger>
+          <TabsTrigger value="instruments">Instrumentos</TabsTrigger>
+        </TabsList>
+        <TabsContent value="accounts" className="flex min-h-0 flex-1 flex-col gap-3">
+          <AccountsSection api={api} />
+        </TabsContent>
+        <TabsContent value="instruments" className="flex min-h-0 flex-1 flex-col gap-3">
+          <InstrumentsSection api={api} />
+        </TabsContent>
+      </Tabs>
+    </>
   );
 }
 
@@ -23,57 +42,72 @@ export function SettingsScreen({ api }: { api: Api }) {
 
 function AccountsSection({ api }: { api: Api }) {
   const [version, setVersion] = useState(0);
+  const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<Account | null>(null);
   const [toggling, setToggling] = useState<Account | null>(null);
   const accounts = useAsync(() => api.listAccounts(), [api, version]);
   const refresh = () => setVersion((v) => v + 1);
 
   return (
-    <section aria-labelledby="accounts-title">
-      <h2 id="accounts-title">Cuentas</h2>
-      <ErrorAlert error={accounts.error} />
-      {accounts.data ? (
-        <TableWrap label="Lista de cuentas">
-          <thead>
-            <tr>
-              <th scope="col">Nombre</th>
-              <th scope="col">Broker</th>
-              <th scope="col">Moneda base</th>
-              <th scope="col">Estado</th>
-              <th scope="col">
-                <span className="sr-only">Acciones</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {accounts.data.items.map((a) => (
-              <tr key={a.id}>
-                <td>{a.name}</td>
-                <td>{a.broker}</td>
-                <td>{a.baseCurrency}</td>
-                <td>{a.archived ? <Badge tone="warn">Archivada</Badge> : <Badge tone="ok">Activa</Badge>}</td>
-                <td className="row-actions">
-                  <button type="button" className="secondary" onClick={() => setRenaming(a)}>
-                    Renombrar
-                  </button>
-                  <button type="button" className="secondary" onClick={() => setToggling(a)}>
-                    {a.archived ? 'Reactivar' : 'Archivar'}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </TableWrap>
+    <>
+      <div className="flex justify-end">
+        <Button onClick={() => setCreating(true)}>
+          <Plus />
+          Nueva cuenta
+        </Button>
+      </div>
+      {accounts.error ? (
+        <ErrorAlert error={accounts.error} />
       ) : (
-        !accounts.error && <Loading />
+        <DataTable label="Lista de cuentas" fill loading={!accounts.data}>
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">Nombre</TableHead>
+              <TableHead scope="col">Broker</TableHead>
+              <TableHead scope="col">Moneda base</TableHead>
+              <TableHead scope="col">Estado</TableHead>
+              <TableHead scope="col">
+                <span className="sr-only">Acciones</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {accounts.data?.items.map((a) => (
+              <TableRow key={a.id}>
+                <TableCell className="font-medium">{a.name}</TableCell>
+                <TableCell>{a.broker}</TableCell>
+                <TableCell>{a.baseCurrency}</TableCell>
+                <TableCell>{a.archived ? <Badge tone="warn">Archivada</Badge> : <Badge tone="ok">Activa</Badge>}</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button size="sm" variant="outline" onClick={() => setRenaming(a)}>
+                      Renombrar
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setToggling(a)}>
+                      {a.archived ? 'Reactivar' : 'Archivar'}
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </DataTable>
       )}
 
-      <div className="card">
-        <h3>Nueva cuenta</h3>
-        <AccountForm api={api} onSaved={refresh} />
-      </div>
-
-      {renaming && <RenameDialog account={renaming} onClose={() => setRenaming(null)} onSave={(name) => api.updateAccount(renaming.id, { name }).then(refresh)} />}
+      {creating && (
+        <Modal title="Nueva cuenta" onClose={() => setCreating(false)} className="sm:max-w-xl">
+          <AccountForm
+            api={api}
+            onSaved={() => {
+              setCreating(false);
+              refresh();
+            }}
+          />
+        </Modal>
+      )}
+      {renaming && (
+        <RenameDialog account={renaming} onClose={() => setRenaming(null)} onSave={(name) => api.updateAccount(renaming.id, { name }).then(refresh)} />
+      )}
       {toggling && (
         <ConfirmDialog
           title={`${toggling.archived ? 'Reactivar' : 'Archivar'} ${toggling.name}`}
@@ -88,7 +122,7 @@ function AccountsSection({ api }: { api: Api }) {
           </p>
         </ConfirmDialog>
       )}
-    </section>
+    </>
   );
 }
 
@@ -110,43 +144,37 @@ function AccountForm({ api, onSaved }: { api: Api; onSaved: () => void }) {
     setError(null);
     try {
       await api.createAccount({ name: name.trim(), broker: broker.trim(), baseCurrency });
-      setName('');
-      setBroker('');
       onSaved();
     } catch (err) {
       setError(err);
-    } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <form className="form-grid" aria-label="Nueva cuenta" onSubmit={handleSubmit} noValidate>
-      <div className="field">
-        <label htmlFor={`${ids}-name`}>Nombre</label>
-        <input id={`${ids}-name`} maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-broker`}>Broker</label>
-        <input id={`${ids}-broker`} maxLength={60} value={broker} onChange={(e) => setBroker(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-currency`}>Moneda base</label>
-        <select id={`${ids}-currency`} value={baseCurrency} onChange={(e) => setBaseCurrency(e.target.value as Currency)}>
-          {CURRENCIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="span-all">
-        <ErrorAlert error={error} />
-      </div>
-      <div className="actions span-all">
-        <button type="submit" disabled={submitting}>
+    <form className="grid gap-4" aria-label="Nueva cuenta" onSubmit={handleSubmit} noValidate>
+      <FormGrid className="lg:grid-cols-3">
+        <FormField label="Nombre" htmlFor={`${ids}-name`}>
+          <Input id={`${ids}-name`} maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
+        </FormField>
+        <FormField label="Broker" htmlFor={`${ids}-broker`}>
+          <Input id={`${ids}-broker`} maxLength={60} value={broker} onChange={(e) => setBroker(e.target.value)} />
+        </FormField>
+        <FormField label="Moneda base" htmlFor={`${ids}-currency`}>
+          <NativeSelect id={`${ids}-currency`} className="w-full" value={baseCurrency} onChange={(e) => setBaseCurrency(e.target.value as Currency)}>
+            {CURRENCIES.map((c) => (
+              <NativeSelectOption key={c} value={c}>
+                {c}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </FormField>
+      </FormGrid>
+      <ErrorAlert error={error} />
+      <div className="flex justify-end">
+        <Button type="submit" disabled={submitting}>
           {submitting ? 'Guardando…' : 'Crear cuenta'}
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -156,15 +184,15 @@ function RenameDialog({ account, onClose, onSave }: { account: Account; onClose:
   const [name, setName] = useState(account.name);
   return (
     <ConfirmDialog
+      variant="form"
       title="Renombrar cuenta"
       confirmLabel="Guardar"
       onClose={onClose}
       onConfirm={() => (name.trim() ? onSave(name.trim()) : Promise.reject(new InputError('El nombre no puede quedar vacío.')))}
     >
-      <div className="field">
-        <label htmlFor="rename-account">Nombre</label>
-        <input id="rename-account" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
-      </div>
+      <FormField label="Nombre" htmlFor="rename-account">
+        <Input id="rename-account" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} />
+      </FormField>
     </ConfirmDialog>
   );
 }
@@ -176,86 +204,107 @@ function InstrumentsSection({ api }: { api: Api }) {
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
   const [version, setVersion] = useState(0);
+  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Instrument | null>(null);
   const refresh = () => setVersion((v) => v + 1);
   const markets = useAsync(() => api.listMarkets(), [api]);
   const instruments = useAsync(() => api.listInstruments({ q: q || undefined, limit: LIMIT, offset }), [api, q, offset, version]);
 
   return (
-    <section aria-labelledby="instruments-title">
-      <h2 id="instruments-title">Instrumentos</h2>
-      <form
-        className="filters"
-        role="search"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setQ(search.trim());
-          setOffset(0);
-        }}
-      >
-        <div className="field">
-          <label htmlFor="instrument-search">Buscar instrumento</label>
-          <input id="instrument-search" type="search" maxLength={50} value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <button type="submit" className="secondary">
-          Buscar
-        </button>
-      </form>
-      <ErrorAlert error={instruments.error} />
-      {instruments.data ? (
-        <>
-          <TableWrap label="Lista de instrumentos">
-            <thead>
-              <tr>
-                <th scope="col">Símbolo</th>
-                <th scope="col">Mercado</th>
-                <th scope="col">Nombre</th>
-                <th scope="col">Tipo</th>
-                <th scope="col">Moneda</th>
-                <th scope="col">Sector / industria</th>
-                <th scope="col" className="num">Retención</th>
-                <th scope="col" className="num">Dividendo anual</th>
-                <th scope="col">
-                  <span className="sr-only">Acciones</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {instruments.data.items.map((i) => (
-                <tr key={i.id}>
-                  <td className="strong">{i.symbol}</td>
-                  <td>{i.marketCode}</td>
-                  <td>{i.name}</td>
-                  <td>{INSTRUMENT_TYPE[i.type]}</td>
-                  <td>{i.currency}</td>
-                  <td>{[i.sector, i.industry].filter(Boolean).join(' / ') || '—'}</td>
-                  <td className="num">
-                    {formatPercent(i.effectiveWithholdingRate)}
-                    {i.withholdingRate === null && <small className="muted"> (mercado)</small>}
-                  </td>
-                  <td className="num">{i.annualDividendPerShare === null ? '—' : formatMoney(i.annualDividendPerShare, i.currency)}</td>
-                  <td className="row-actions">
-                    <button type="button" className="secondary" onClick={() => setEditing(i)}>
-                      Editar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </TableWrap>
-          <Pager offset={offset} limit={LIMIT} total={instruments.data.total} onChange={setOffset} />
-        </>
+    <>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <form
+          className="flex items-end gap-2"
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setQ(search.trim());
+            setOffset(0);
+          }}
+        >
+          <FormField label="Buscar instrumento" htmlFor="instrument-search" className="w-56">
+            <Input id="instrument-search" type="search" maxLength={50} value={search} onChange={(e) => setSearch(e.target.value)} />
+          </FormField>
+          <Button type="submit" variant="outline">
+            <Search />
+            Buscar
+          </Button>
+        </form>
+        <Button onClick={() => setCreating(true)} disabled={!markets.data}>
+          <Plus />
+          Nuevo instrumento
+        </Button>
+      </div>
+      <ErrorAlert error={markets.error} />
+      {instruments.error ? (
+        <ErrorAlert error={instruments.error} />
       ) : (
-        !instruments.error && <Loading />
+        <DataTable
+          label="Lista de instrumentos"
+          fill
+          loading={!instruments.data}
+          isEmpty={instruments.data?.items.length === 0}
+          empty="No hay instrumentos que coincidan."
+          footer={instruments.data && <Pager offset={offset} limit={LIMIT} total={instruments.data.total} onChange={setOffset} />}
+        >
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">Símbolo</TableHead>
+              <TableHead scope="col">Mercado</TableHead>
+              <TableHead scope="col">Nombre</TableHead>
+              <TableHead scope="col">Tipo</TableHead>
+              <TableHead scope="col">Moneda</TableHead>
+              <TableHead scope="col">Sector / industria</TableHead>
+              <TableHead scope="col" className={NUM}>
+                Retención
+              </TableHead>
+              <TableHead scope="col" className={NUM}>
+                Dividendo anual
+              </TableHead>
+              <TableHead scope="col">
+                <span className="sr-only">Acciones</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {instruments.data?.items.map((i) => (
+              <TableRow key={i.id}>
+                <TableCell className="font-semibold">{i.symbol}</TableCell>
+                <TableCell>{i.marketCode}</TableCell>
+                <TableCell>{i.name}</TableCell>
+                <TableCell>{INSTRUMENT_TYPE[i.type]}</TableCell>
+                <TableCell>{i.currency}</TableCell>
+                <TableCell>{[i.sector, i.industry].filter(Boolean).join(' / ') || '—'}</TableCell>
+                <TableCell className={NUM}>
+                  {formatPercent(i.effectiveWithholdingRate)}
+                  {i.withholdingRate === null && <span className="text-xs text-muted-foreground"> (mercado)</span>}
+                </TableCell>
+                <TableCell className={NUM}>{i.annualDividendPerShare === null ? '—' : formatMoney(i.annualDividendPerShare, i.currency)}</TableCell>
+                <TableCell className="text-right">
+                  <Button size="sm" variant="outline" onClick={() => setEditing(i)}>
+                    Editar
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </DataTable>
       )}
 
-      <div className="card">
-        <h3>Nuevo instrumento</h3>
-        {markets.data ? <InstrumentCreateForm api={api} markets={markets.data.items} onSaved={refresh} /> : <ErrorAlert error={markets.error} />}
-      </div>
-
+      {creating && markets.data && (
+        <Modal title="Nuevo instrumento" onClose={() => setCreating(false)}>
+          <InstrumentCreateForm
+            api={api}
+            markets={markets.data.items}
+            onSaved={() => {
+              setCreating(false);
+              refresh();
+            }}
+          />
+        </Modal>
+      )}
       {editing && <InstrumentEditDialog api={api} instrument={editing} onClose={() => setEditing(null)} onSaved={refresh} />}
-    </section>
+    </>
   );
 }
 
@@ -276,35 +325,31 @@ function DetailsFields({ ids, value, onChange }: { ids: string; value: Instrumen
   const set = (key: keyof InstrumentDetails) => (e: { target: { value: string } }) => onChange({ ...value, [key]: e.target.value });
   return (
     <>
-      <div className="field">
-        <label htmlFor={`${ids}-sector`}>Sector</label>
-        <input id={`${ids}-sector`} maxLength={60} value={value.sector} onChange={set('sector')} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-industry`}>Industria</label>
-        <input id={`${ids}-industry`} maxLength={60} value={value.industry} onChange={set('industry')} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-wh`}>Retención (%) — vacío usa la del mercado</label>
-        <input id={`${ids}-wh`} inputMode="decimal" value={value.withholding} onChange={set('withholding')} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-div`}>Dividendo anual por acción</label>
-        <input id={`${ids}-div`} inputMode="decimal" value={value.annualDividend} onChange={set('annualDividend')} />
-      </div>
+      <FormField label="Sector" htmlFor={`${ids}-sector`}>
+        <Input id={`${ids}-sector`} maxLength={60} value={value.sector} onChange={set('sector')} />
+      </FormField>
+      <FormField label="Industria" htmlFor={`${ids}-industry`}>
+        <Input id={`${ids}-industry`} maxLength={60} value={value.industry} onChange={set('industry')} />
+      </FormField>
+      <FormField label="Retención (%)" htmlFor={`${ids}-wh`} hint="Vacío usa la del mercado">
+        <Input id={`${ids}-wh`} inputMode="decimal" value={value.withholding} onChange={set('withholding')} />
+      </FormField>
+      <FormField label="Dividendo anual por acción" htmlFor={`${ids}-div`}>
+        <Input id={`${ids}-div`} inputMode="decimal" value={value.annualDividend} onChange={set('annualDividend')} />
+      </FormField>
     </>
   );
 }
 
 function TypeSelect({ id, value, onChange }: { id: string; value: InstrumentType; onChange: (t: InstrumentType) => void }) {
   return (
-    <select id={id} value={value} onChange={(e) => onChange(e.target.value as InstrumentType)}>
+    <NativeSelect id={id} className="w-full" value={value} onChange={(e) => onChange(e.target.value as InstrumentType)}>
       {Object.entries(INSTRUMENT_TYPE).map(([v, label]) => (
-        <option key={v} value={v}>
+        <NativeSelectOption key={v} value={v}>
           {label}
-        </option>
+        </NativeSelectOption>
       ))}
-    </select>
+    </NativeSelect>
   );
 }
 
@@ -326,33 +371,30 @@ function InstrumentEditDialog({ api, instrument, onClose, onSaved }: { api: Api;
   }
 
   return (
-    <ConfirmDialog title={`Editar ${instrument.symbol}`} confirmLabel="Guardar" onClose={onClose} onConfirm={save}>
-      <p className="muted">
+    <ConfirmDialog variant="form" title={`Editar ${instrument.symbol}`} confirmLabel="Guardar" onClose={onClose} onConfirm={save}>
+      <p className="text-muted-foreground">
         {instrument.marketCode} · {instrument.currency} (símbolo, mercado y moneda no se pueden cambiar)
       </p>
-      <div className="form-grid">
-        <div className="field span-2">
-          <label htmlFor={`${ids}-name`}>Nombre</label>
-          <input id={`${ids}-name`} maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor={`${ids}-type`}>Tipo</label>
+      <FormGrid className="lg:grid-cols-2">
+        <FormField label="Nombre" htmlFor={`${ids}-name`}>
+          <Input id={`${ids}-name`} maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
+        </FormField>
+        <FormField label="Tipo" htmlFor={`${ids}-type`}>
           <TypeSelect id={`${ids}-type`} value={type} onChange={setType} />
-        </div>
+        </FormField>
         <DetailsFields ids={ids} value={details} onChange={setDetails} />
-      </div>
+      </FormGrid>
     </ConfirmDialog>
   );
 }
 
 function InstrumentCreateForm({ api, markets, onSaved }: { api: Api; markets: Market[]; onSaved: () => void }) {
   const ids = useId();
-  const empty: InstrumentDetails = { sector: '', industry: '', withholding: '', annualDividend: '' };
   const [symbol, setSymbol] = useState('');
   const [marketCode, setMarketCode] = useState('');
   const [name, setName] = useState('');
   const [type, setType] = useState<InstrumentType>('STOCK');
-  const [details, setDetails] = useState(empty);
+  const [details, setDetails] = useState<InstrumentDetails>({ sector: '', industry: '', withholding: '', annualDividend: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -366,50 +408,42 @@ function InstrumentCreateForm({ api, markets, onSaved }: { api: Api; markets: Ma
     setSubmitting(true);
     try {
       await api.createInstrument({ symbol: normalized, marketCode, name: name.trim(), type, ...detailsToBody(details) });
-      setSymbol('');
-      setName('');
-      setDetails(empty);
       onSaved();
     } catch (err) {
       setError(err);
-    } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <form className="form-grid" aria-label="Nuevo instrumento" onSubmit={handleSubmit} noValidate>
-      <div className="field">
-        <label htmlFor={`${ids}-symbol`}>Símbolo</label>
-        <input id={`${ids}-symbol`} maxLength={20} value={symbol} onChange={(e) => setSymbol(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-market`}>Mercado</label>
-        <select id={`${ids}-market`} value={marketCode} onChange={(e) => setMarketCode(e.target.value)}>
-          <option value="">Elige…</option>
-          {markets.map((m) => (
-            <option key={m.code} value={m.code}>
-              {m.code} — {m.name} ({m.currency})
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-name`}>Nombre</label>
-        <input id={`${ids}-name`} maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
-      </div>
-      <div className="field">
-        <label htmlFor={`${ids}-type`}>Tipo</label>
-        <TypeSelect id={`${ids}-type`} value={type} onChange={setType} />
-      </div>
-      <DetailsFields ids={ids} value={details} onChange={setDetails} />
-      <div className="span-all">
-        <ErrorAlert error={error} />
-      </div>
-      <div className="actions span-all">
-        <button type="submit" disabled={submitting}>
+    <form className="grid gap-4" aria-label="Nuevo instrumento" onSubmit={handleSubmit} noValidate>
+      <FormGrid className="lg:grid-cols-2">
+        <FormField label="Símbolo" htmlFor={`${ids}-symbol`}>
+          <Input id={`${ids}-symbol`} maxLength={20} value={symbol} onChange={(e) => setSymbol(e.target.value)} />
+        </FormField>
+        <FormField label="Mercado" htmlFor={`${ids}-market`}>
+          <NativeSelect id={`${ids}-market`} className="w-full" value={marketCode} onChange={(e) => setMarketCode(e.target.value)}>
+            <NativeSelectOption value="">Elige…</NativeSelectOption>
+            {markets.map((m) => (
+              <NativeSelectOption key={m.code} value={m.code}>
+                {m.code} — {m.name} ({m.currency})
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </FormField>
+        <FormField label="Nombre" htmlFor={`${ids}-name`}>
+          <Input id={`${ids}-name`} maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
+        </FormField>
+        <FormField label="Tipo" htmlFor={`${ids}-type`}>
+          <TypeSelect id={`${ids}-type`} value={type} onChange={setType} />
+        </FormField>
+        <DetailsFields ids={ids} value={details} onChange={setDetails} />
+      </FormGrid>
+      <ErrorAlert error={error} />
+      <div className="flex justify-end">
+        <Button type="submit" disabled={submitting}>
           {submitting ? 'Guardando…' : 'Crear instrumento'}
-        </button>
+        </Button>
       </div>
     </form>
   );

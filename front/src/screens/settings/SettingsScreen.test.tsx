@@ -36,6 +36,7 @@ describe('SettingsScreen — cuentas', () => {
       { method: 'POST', path: '/api/v1/accounts', status: 201, body: accounts[0] },
     ]));
     render(<SettingsScreen api={createApi()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Nueva cuenta' }));
     const form = within(await screen.findByRole('form', { name: 'Nueva cuenta' }));
 
     fireEvent.change(form.getByLabelText('Nombre'), { target: { value: 'Revolut' } });
@@ -58,7 +59,7 @@ describe('SettingsScreen — cuentas', () => {
     await screen.findByRole('region', { name: 'Lista de cuentas' });
 
     fireEvent.click(within(rowOf('Lista de cuentas', /^Itaú/)).getByRole('button', { name: 'Renombrar' }));
-    let dialog = within(screen.getByRole('dialog', { name: 'Renombrar cuenta' }));
+    let dialog = within(await screen.findByRole('dialog', { name: 'Renombrar cuenta' }));
     fireEvent.change(dialog.getByLabelText('Nombre'), { target: { value: 'Itaú Corredores' } });
     fireEvent.click(dialog.getByRole('button', { name: 'Guardar' }));
     await vi.waitFor(() => expect(calls(fetchMock)).toContain(`PATCH /api/v1/accounts/${ITAU}`));
@@ -66,14 +67,14 @@ describe('SettingsScreen — cuentas', () => {
     await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     fireEvent.click(within(rowOf('Lista de cuentas', /^Itaú/)).getByRole('button', { name: 'Archivar' }));
-    dialog = within(screen.getByRole('dialog', { name: 'Archivar Itaú' }));
-    expect(text(screen.getByRole('dialog'))).toMatch(/no aceptará nuevas/);
+    dialog = within(await screen.findByRole('alertdialog', { name: 'Archivar Itaú' }));
+    expect(text(screen.getByRole('alertdialog'))).toMatch(/no aceptará nuevas/);
     fireEvent.click(dialog.getByRole('button', { name: 'Archivar' }));
     await vi.waitFor(() => expect(lastBody(fetchMock, `PATCH /api/v1/accounts/${ITAU}`)).toEqual({ archived: true }));
-    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await vi.waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
 
     fireEvent.click(within(rowOf('Lista de cuentas', /^Zesty/)).getByRole('button', { name: 'Reactivar' }));
-    fireEvent.click(within(screen.getByRole('dialog', { name: 'Reactivar Zesty' })).getByRole('button', { name: 'Reactivar' }));
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: 'Reactivar Zesty' })).getByRole('button', { name: 'Reactivar' }));
     await vi.waitFor(() => expect(lastBody(fetchMock, `PATCH /api/v1/accounts/${ZESTY}`)).toEqual({ archived: false }));
   });
 });
@@ -82,6 +83,7 @@ describe('SettingsScreen — instrumentos', () => {
   it('lista instrumentos con la retención efectiva y su origen; busca por texto', async () => {
     const fetchMock = mockFetch(routes());
     render(<SettingsScreen api={createApi()} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Instrumentos' }));
     await screen.findByRole('region', { name: 'Lista de instrumentos' });
 
     expect(calls(fetchMock)).toContain('GET /api/v1/instruments?limit=100&offset=0');
@@ -96,10 +98,11 @@ describe('SettingsScreen — instrumentos', () => {
   it('edita sector, industria, retención (vacía = la del mercado) y dividendo anual', async () => {
     const fetchMock = mockFetch(routes([{ method: 'PATCH', path: `/api/v1/instruments/${BITO}`, status: 200, body: instruments[2] }]));
     render(<SettingsScreen api={createApi()} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Instrumentos' }));
     await screen.findByRole('region', { name: 'Lista de instrumentos' });
 
     fireEvent.click(within(rowOf('Lista de instrumentos', /^BITO/)).getByRole('button', { name: 'Editar' }));
-    const dialog = within(screen.getByRole('dialog', { name: 'Editar BITO' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Editar BITO' }));
     expect((dialog.getByLabelText(/Retención/) as HTMLInputElement).value).toBe('30');
     fireEvent.change(dialog.getByLabelText('Sector'), { target: { value: 'Crypto' } });
     fireEvent.change(dialog.getByLabelText('Industria'), { target: { value: '' } });
@@ -120,6 +123,8 @@ describe('SettingsScreen — instrumentos', () => {
       { method: 'POST', path: '/api/v1/instruments', status: 201, body: instruments[1] },
     ]));
     render(<SettingsScreen api={createApi()} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Instrumentos' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Nuevo instrumento' }));
     const form = within(await screen.findByRole('form', { name: 'Nuevo instrumento' }));
 
     fireEvent.change(form.getByLabelText('Símbolo'), { target: { value: 'abbv' } });

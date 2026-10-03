@@ -1,7 +1,12 @@
 import { useId, useMemo, useState, type FormEvent } from 'react';
 import type { Account, Api, Dividend, DividendInput, DividendKind, DividendStatus, Instrument, Position } from '../../api/client.ts';
 import { ApiError } from '../../api/client.ts';
+import { FormField, FormGrid, RadioGroupField, RadioOption } from '../../components/form.tsx';
+import { InstrumentCombobox } from '../../components/InstrumentCombobox.tsx';
 import { ErrorAlert } from '../../components/ui.tsx';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { formatMoney, formatQuantity, fractionToPercent, normalizeDecimal, percentToFraction } from '../../lib/format.ts';
 import { DIVIDEND_KIND, DIVIDEND_STATUS } from '../../lib/labels.ts';
 import { today } from '../../lib/useAsync.ts';
@@ -182,167 +187,149 @@ export function DividendForm({ api, accounts, instruments, positions, initial, o
   }
 
   return (
-    <form className="form-grid" onSubmit={handleSubmit} onChange={handleFieldChange} aria-busy={submitting} noValidate>
-      <div className="field span-2">
-        <label htmlFor={`${ids}-instrument`}>Instrumento</label>
-        <input
-          id={`${ids}-instrument`}
-          list={`${ids}-open`}
-          autoComplete="off"
-          placeholder="Símbolo, p. ej. KO"
-          value={instrumentText}
-          onChange={(e) => chooseInstrument(e.target.value)}
-          {...fieldProps('instrumentId')}
-          autoFocus={!editing}
-        />
-        <datalist id={`${ids}-open`}>
-          {openInstruments.map((p) => (
-            <option key={p.instrumentId} value={optionLabel(p)}>
-              {p.name} — {formatQuantity(p.quantity)} acciones
-            </option>
-          ))}
-        </datalist>
-        {instrument && (
-          <small className="muted">
-            {instrument.name} · Moneda: {instrument.currency}
-          </small>
-        )}
-      </div>
-
-      <div className="field">
-        <label htmlFor={`${ids}-account`}>Cuenta</label>
-        <select id={`${ids}-account`} {...fieldProps('accountId')} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-          <option value="">Elige…</option>
-          {activeAccounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-        {heldIn.length > 0 && heldIn.some((p) => p.accountId === accountId) && <small className="muted">Sugerida por la posición</small>}
-      </div>
-
-      <div className="field">
-        <label htmlFor={`${ids}-payment`}>Fecha de pago</label>
-        <input id={`${ids}-payment`} {...fieldProps('paymentDate')} type="date" required value={paymentDate} onChange={(e) => choosePaymentDate(e.target.value)} />
-      </div>
-
-      <div className="field">
-        <label htmlFor={`${ids}-ex`}>Fecha ex (opcional)</label>
-        <input id={`${ids}-ex`} {...fieldProps('exDate')} type="date" value={exDate} onChange={(e) => setExDate(e.target.value)} />
-      </div>
-
-      <fieldset className="field span-2 inline">
-        <legend>Monto</legend>
-        <label>
-          <input type="radio" name={`${ids}-mode`} checked={mode === 'gross'} onChange={() => amountChanged(setMode)('gross')} /> Bruto total
-        </label>
-        <label>
-          <input type="radio" name={`${ids}-mode`} checked={mode === 'perShare'} onChange={() => amountChanged(setMode)('perShare')} /> Por acción
-        </label>
-      </fieldset>
-
-      {mode === 'gross' ? (
-        <div className="field">
-          <label htmlFor={`${ids}-gross`}>Monto bruto</label>
-          <input id={`${ids}-gross`} {...fieldProps('grossAmount')} inputMode="decimal" value={gross} onChange={(e) => amountChanged(setGross)(e.target.value)} />
-        </div>
-      ) : (
-        <>
-          <div className="field">
-            <label htmlFor={`${ids}-pershare`}>Dividendo por acción</label>
-            <input id={`${ids}-pershare`} {...fieldProps('perShare')} inputMode="decimal" value={perShare} onChange={(e) => amountChanged(setPerShare)(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor={`${ids}-qty`}>Cantidad de acciones (opcional)</label>
-            <input
-              id={`${ids}-qty`}
-              {...fieldProps('quantity')}
-              inputMode="decimal"
-              placeholder="Posición en la fecha"
-              value={quantity}
-              onChange={(e) => amountChanged(setQuantity)(e.target.value)}
-            />
-          </div>
-        </>
-      )}
-
-      <div className="field">
-        <label htmlFor={`${ids}-wh`}>Retención (%)</label>
-        <input id={`${ids}-wh`} {...fieldProps('withholdingRate')} inputMode="decimal" value={withholding} onChange={(e) => amountChanged(setWithholding)(e.target.value)} />
-      </div>
-
-      <div className="field">
-        <label htmlFor={`${ids}-net`}>Neto recibido (opcional)</label>
-        <input
-          id={`${ids}-net`}
-          {...fieldProps('netAmount')}
-          inputMode="decimal"
-          placeholder="Lo calcula el servidor"
-          value={net}
-          onChange={(e) => {
-            setNet(e.target.value);
-            setNetPrefilled(false);
-            setNetCleared(false);
-          }}
-        />
-        {netCleared && <small className="muted">Cambiaste el monto o la retención: el servidor recalculará el neto.</small>}
-      </div>
-
-      <div className="field">
-        <label htmlFor={`${ids}-status`}>Estado</label>
-        <select
-          id={`${ids}-status`}
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value as DividendStatus);
-            setStatusTouched(true);
-          }}
+    <form className="grid gap-4" onSubmit={handleSubmit} onChange={handleFieldChange} aria-busy={submitting} noValidate>
+      <FormGrid>
+        <FormField
+          label="Instrumento"
+          htmlFor={`${ids}-instrument`}
+          className="sm:col-span-2"
+          hint={instrument ? `${instrument.name} · Moneda: ${instrument.currency}` : 'Escribe el símbolo; se sugieren tus posiciones abiertas'}
         >
-          {Object.entries(DIVIDEND_STATUS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
+          <InstrumentCombobox
+            id={`${ids}-instrument`}
+            options={openInstruments.map((p) => ({ label: optionLabel(p), detail: `${p.name} — ${formatQuantity(p.quantity)} acciones` }))}
+            value={instrumentText}
+            onValueChange={chooseInstrument}
+            placeholder="Símbolo, p. ej. KO"
+            autoFocus={!editing}
+            {...fieldProps('instrumentId')}
+          />
+        </FormField>
 
-      <div className="field">
-        <label htmlFor={`${ids}-kind`}>Tipo</label>
-        <select id={`${ids}-kind`} value={kind} onChange={(e) => setKind(e.target.value as DividendKind)}>
-          {Object.entries(DIVIDEND_KIND).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
+        <FormField
+          label="Cuenta"
+          htmlFor={`${ids}-account`}
+          hint={heldIn.length > 0 && heldIn.some((p) => p.accountId === accountId) ? 'Sugerida por la posición' : undefined}
+        >
+          <NativeSelect id={`${ids}-account`} className="w-full" {...fieldProps('accountId')} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            <NativeSelectOption value="">Elige…</NativeSelectOption>
+            {activeAccounts.map((a) => (
+              <NativeSelectOption key={a.id} value={a.id}>
+                {a.name}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </FormField>
 
-      <div className="field span-2">
-        <label htmlFor={`${ids}-notes`}>Notas</label>
-        <input id={`${ids}-notes`} {...fieldProps('notes')} maxLength={200} value={notes} onChange={(e) => setNotes(e.target.value)} />
-      </div>
+        <FormField label="Fecha de pago" htmlFor={`${ids}-payment`}>
+          <Input id={`${ids}-payment`} {...fieldProps('paymentDate')} type="date" required value={paymentDate} onChange={(e) => choosePaymentDate(e.target.value)} />
+        </FormField>
+
+        <FormField label="Fecha ex (opcional)" htmlFor={`${ids}-ex`}>
+          <Input id={`${ids}-ex`} {...fieldProps('exDate')} type="date" value={exDate} onChange={(e) => setExDate(e.target.value)} />
+        </FormField>
+
+        <RadioGroupField legend="Monto">
+          <RadioOption name={`${ids}-mode`} label="Bruto total" checked={mode === 'gross'} onChange={() => amountChanged(setMode)('gross')} />
+          <RadioOption name={`${ids}-mode`} label="Por acción" checked={mode === 'perShare'} onChange={() => amountChanged(setMode)('perShare')} />
+        </RadioGroupField>
+
+        {mode === 'gross' ? (
+          <FormField label="Monto bruto" htmlFor={`${ids}-gross`}>
+            <Input id={`${ids}-gross`} {...fieldProps('grossAmount')} inputMode="decimal" value={gross} onChange={(e) => amountChanged(setGross)(e.target.value)} />
+          </FormField>
+        ) : (
+          <>
+            <FormField label="Dividendo por acción" htmlFor={`${ids}-pershare`}>
+              <Input id={`${ids}-pershare`} {...fieldProps('perShare')} inputMode="decimal" value={perShare} onChange={(e) => amountChanged(setPerShare)(e.target.value)} />
+            </FormField>
+            <FormField label="Cantidad de acciones (opcional)" htmlFor={`${ids}-qty`}>
+              <Input
+                id={`${ids}-qty`}
+                {...fieldProps('quantity')}
+                inputMode="decimal"
+                placeholder="Posición en la fecha"
+                value={quantity}
+                onChange={(e) => amountChanged(setQuantity)(e.target.value)}
+              />
+            </FormField>
+          </>
+        )}
+
+        <FormField label="Retención (%)" htmlFor={`${ids}-wh`}>
+          <Input id={`${ids}-wh`} {...fieldProps('withholdingRate')} inputMode="decimal" value={withholding} onChange={(e) => amountChanged(setWithholding)(e.target.value)} />
+        </FormField>
+
+        <FormField
+          label="Neto recibido (opcional)"
+          htmlFor={`${ids}-net`}
+          hint={netCleared ? 'Cambiaste el monto o la retención: el servidor recalculará el neto.' : undefined}
+        >
+          <Input
+            id={`${ids}-net`}
+            {...fieldProps('netAmount')}
+            inputMode="decimal"
+            placeholder="Lo calcula el servidor"
+            value={net}
+            onChange={(e) => {
+              setNet(e.target.value);
+              setNetPrefilled(false);
+              setNetCleared(false);
+            }}
+          />
+        </FormField>
+
+        <FormField label="Estado" htmlFor={`${ids}-status`}>
+          <NativeSelect
+            id={`${ids}-status`}
+            className="w-full"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value as DividendStatus);
+              setStatusTouched(true);
+            }}
+          >
+            {Object.entries(DIVIDEND_STATUS).map(([value, label]) => (
+              <NativeSelectOption key={value} value={value}>
+                {label}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </FormField>
+
+        <FormField label="Tipo" htmlFor={`${ids}-kind`}>
+          <NativeSelect id={`${ids}-kind`} className="w-full" value={kind} onChange={(e) => setKind(e.target.value as DividendKind)}>
+            {Object.entries(DIVIDEND_KIND).map(([value, label]) => (
+              <NativeSelectOption key={value} value={value}>
+                {label}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </FormField>
+
+        <FormField label="Notas" htmlFor={`${ids}-notes`} className="sm:col-span-2">
+          <Input id={`${ids}-notes`} {...fieldProps('notes')} maxLength={200} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </FormField>
+      </FormGrid>
 
       {preview && instrument && (
-        <p className="preview span-all" data-testid="dividend-preview" aria-live="polite">
+        <p className="rounded-lg border border-dashed px-3 py-2 text-sm" data-testid="dividend-preview" aria-live="polite">
           Vista previa (aprox.): Bruto {formatMoney(preview.gross, instrument.currency)} · Neto {formatMoney(preview.net, instrument.currency)}
-          <small className="muted"> — el monto exacto lo calcula el servidor</small>
+          <span className="text-muted-foreground"> — el monto exacto lo calcula el servidor</span>
         </p>
       )}
 
-      <div className="span-all">
-        <ErrorAlert id={errorId} error={error} />
-      </div>
+      <ErrorAlert id={errorId} error={error} />
 
-      <div className="actions span-all">
+      <div className="flex flex-wrap justify-end gap-2">
         {editing && onCancel && (
-          <button type="button" className="secondary" onClick={onCancel}>
+          <Button type="button" variant="outline" onClick={onCancel}>
             Cancelar edición
-          </button>
+          </Button>
         )}
-        <button type="submit" disabled={submitting}>
+        <Button type="submit" disabled={submitting}>
           {submitting ? 'Guardando…' : editing ? 'Guardar cambios' : 'Registrar dividendo'}
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -40,6 +40,7 @@ Plataforma personal para seguir un portafolio de inversión enfocado en dividend
 | Dinero | `NUMERIC` en BD; value object `Money` en dominio; nunca `float` para montos | Precisión |
 | Tests back | `node:test` + `node:assert`; integración contra Postgres real | Cero dependencias de test |
 | Front | React + Vite + TypeScript (últimas estables) | |
+| UI front | **Tailwind CSS + shadcn/ui sobre Base UI** (decisión del usuario, 2026-10-03) | Sistema de diseño consistente y accesible. shadcn copia los componentes al repo (`front/src/components/ui/`), así que sólo agrega como dependencias las primitivas de Base UI y sus utilidades (ver `docs/tarea-ui.md`) |
 | Tests front | Vitest + Testing Library | Renderizar React; reutiliza config de Vite |
 | Tipos del cliente | `openapi-typescript` (devDependency) desde `contracts/openapi.yaml` | El front no se desalinea del contrato |
 | Servidor web | nginx: sirve el build y hace proxy de `/api/` a `api:3000` | Simula producción |
@@ -79,3 +80,9 @@ Regla de dependencias (verificada por un test automático `architecture.test.ts`
 ## Contrato de API
 
 `contracts/openapi.yaml` es la fuente de verdad. Prefijo `/api/v1`, JSON camelCase, errores RFC 9457 con `code` estable.
+
+## Operación del stack local (agentes)
+
+- El dueño tiene un `.env` propio y sus datos reales en el volumen `db-data`. **Nunca** usar `--env-file .env.example`, `down -v` ni recrear `db`.
+- Comandos permitidos: `docker compose up -d --build --no-deps <api|worker|web>` (siempre `--no-deps`, sin `--env-file`), `docker compose exec ...`, `docker compose logs ...`. `db-test` sólo con `--profile test`.
+- Usuarios de prueba: `*@example.com`. Nunca leer, modificar ni usar el usuario del dueño.
