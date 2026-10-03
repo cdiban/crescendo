@@ -7,6 +7,7 @@ import { NetWorthChart } from '../components/charts/NetWorthChart.tsx';
 import { DefinitionList } from '../components/stats.tsx';
 import { monthsAgo } from '../lib/periods.ts';
 import { Link } from '../router.tsx';
+import { ALERTS_PARAM } from '../lib/links.ts';
 import { ErrorAlert, Loading, PageHeader, Signed } from '../components/ui.tsx';
 import { formatDate, formatMoney, formatPercent, formatRate, isOne } from '../lib/format.ts';
 import { today, useAsync } from '../lib/useAsync.ts';
@@ -112,7 +113,7 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
               <Signed amount={s.realizedGain} currency={s.reportingCurrency} colorPositive />
             </Stat>
           </StatCard>
-          <StatCard title="Dividendos" className="sm:col-span-1 xl:col-span-2">
+          <StatCard title="Dividendos" className="xl:col-span-2">
             <DefinitionList
               items={[
                 { label: 'Este año (neto)', value: money(s.dividends.netYearToDate) },
@@ -123,8 +124,9 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
               ]}
             />
           </StatCard>
+          <DividendAlertsCard alerts={s.dividendAlerts} />
           <IncomeGoalCard goal={s.incomeGoal} currency={s.reportingCurrency} />
-          <StatCard title="Exposición por moneda" hint="Costo vigente a tipo de cambio actual + caja">
+          <StatCard title="Exposición por moneda" hint="Costo vigente a tipo de cambio actual + caja" className="xl:col-span-2">
             <ul className="grid gap-3">
               {s.exposure.map((e) => (
                 <li key={e.currency} className="grid grid-cols-[auto_auto_1fr] items-baseline gap-x-3 gap-y-1">
@@ -171,13 +173,61 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
   );
 }
 
+type DividendAlerts = Awaited<ReturnType<Api['getPortfolioSummary']>>['dividendAlerts'];
+
+/** P4: instrumentos en cartera cuyo dividendo por acción bajó; lleva a Análisis con "Solo alertas". */
+function DividendAlertsCard({ alerts }: { alerts: DividendAlerts }) {
+  const hint = 'Instrumentos en cartera según su dividendo por acción (umbral de recorte en Configuración)';
+  const link = 'text-sm font-medium text-primary underline-offset-4 hover:underline';
+  if (alerts.cut === 0 && alerts.suspended === 0 && alerts.down === 0)
+    return (
+      <StatCard title="Alertas de dividendos" hint={hint} className="xl:col-span-2">
+        <p className="flex items-center gap-2 text-sm">
+          <CircleCheck className="size-4 shrink-0 text-positive" aria-hidden="true" />
+          Sin recortes ni suspensiones
+        </p>
+        <Link to="/analisis" className={link}>
+          Ver dividendo por acción
+        </Link>
+      </StatCard>
+    );
+  const counts = [
+    { label: 'Recorte', value: alerts.cut, tone: 'negative' },
+    { label: 'Suspendido', value: alerts.suspended, tone: 'negative' },
+    { label: 'Baja leve', value: alerts.down, tone: 'warning' },
+  ] as const;
+  return (
+    <StatCard title="Alertas de dividendos" hint={hint} className="xl:col-span-2">
+      <dl className="grid grid-cols-3 gap-3">
+        {counts.map((c) => (
+          <div key={c.label} className="grid gap-0.5">
+            <dt className="truncate text-sm text-muted-foreground">{c.label}</dt>
+            <dd
+              data-tone={c.value > 0 ? c.tone : undefined}
+              className={cn(
+                'font-heading text-2xl font-semibold tabular-nums',
+                c.value > 0 && (c.tone === 'negative' ? 'text-negative' : 'text-warning-foreground'),
+              )}
+            >
+              {c.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <Link to={`/analisis?${ALERTS_PARAM}=1`} className={link}>
+        Ver alertas en Análisis
+      </Link>
+    </StatCard>
+  );
+}
+
 type IncomeGoal = NonNullable<Awaited<ReturnType<Api['getPortfolioSummary']>>['incomeGoal']>;
 
 /** P2: cuánto de la meta mensual cubren los dividendos (últimos 12 meses y esperado). */
 function IncomeGoalCard({ goal, currency }: { goal: IncomeGoal | null; currency: Currency }) {
   if (!goal)
     return (
-      <StatCard title="Meta de ingreso">
+      <StatCard title="Meta de ingreso" className="xl:col-span-2">
         <p className="text-sm text-muted-foreground">Define cuánto quieres cubrir al mes con dividendos y verás qué parte cubren hoy.</p>
         <Link to="/configuracion" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
           Definir meta
@@ -189,7 +239,7 @@ function IncomeGoalCard({ goal, currency }: { goal: IncomeGoal | null; currency:
     { label: 'Esperado', title: 'Con el ingreso anual esperado (neto)', value: formatPercent(goal.coverageExpected) },
   ];
   return (
-    <StatCard title="Meta de ingreso" hint="Dividendos netos por mes frente a tu gasto mensual objetivo">
+    <StatCard title="Meta de ingreso" hint="Dividendos netos por mes frente a tu gasto mensual objetivo" className="xl:col-span-2">
       <Stat>{formatMoney(goal.monthlyGoalReporting, currency)} al mes</Stat>
       {goal.goal.currency !== currency && (
         <p className="text-xs text-muted-foreground">Meta definida: {formatMoney(goal.goal.amount, goal.goal.currency)} (al tipo de cambio actual)</p>

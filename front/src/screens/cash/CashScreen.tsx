@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowLeftRight, Plus, Trash2 } from 'lucide-react';
-import type { Api, CashMovement, CashMovementType, Currency } from '../../api/client.ts';
+import type { Api, CashMovement, CashMovementType, Currency, ImportRole } from '../../api/client.ts';
 import { DataTable, Pager } from '../../components/DataTable.tsx';
 import { FormField } from '../../components/form.tsx';
 import { ConfirmDialog, Modal } from '../../components/Modal.tsx';
@@ -17,6 +17,21 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 const LIMIT = 100;
 const NUM = 'text-right tabular-nums';
 const SOURCE = { MANUAL: 'Manual', AUTOMATIC: 'Automático', IMPORT: 'Importación' } as const;
+/** Papel de un movimiento creado por la importación inicial (campo de la API, no se deduce de la descripción). */
+const IMPORT_ROLE: Record<ImportRole, { label: string; help: string }> = {
+  INFERRED_CONTRIBUTION: {
+    label: 'Aporte inferido',
+    help: 'La importación agregó este depósito inferido para que la caja no quede negativa: el Excel registraba compras sin el aporte que las financió.',
+  },
+  UNASSIGNED_DEPOSIT: {
+    label: 'No asignado',
+    help: 'Dinero depositado que no se gastó al corte de la importación: no cuenta como aporte del período en la proyección.',
+  },
+  RESIDUAL_ADJUSTMENT: {
+    label: 'Ajuste de importación',
+    help: 'Es un ajuste negativo al corte de la importación, para que la caja coincida con el saldo real.',
+  },
+};
 
 export function CashScreen({ api }: { api: Api }) {
   const [accountId, setAccountId] = useState('');
@@ -195,7 +210,14 @@ export function CashScreen({ api }: { api: Api }) {
                     <Signed amount={m.amount} currency={m.currency} />
                   </TableCell>
                   <TableCell>
-                    <Badge variant={m.source === 'MANUAL' ? 'outline' : 'secondary'}>{SOURCE[m.source]}</Badge>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant={m.source === 'MANUAL' ? 'outline' : 'secondary'}>{SOURCE[m.source]}</Badge>
+                      {m.importRole && (
+                        <Badge data-testid="import-role" variant="info" title={IMPORT_ROLE[m.importRole].help} aria-description={IMPORT_ROLE[m.importRole].help}>
+                          {IMPORT_ROLE[m.importRole].label}
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     {m.type === 'TRADE' || m.type === 'DIVIDEND' ? null : (

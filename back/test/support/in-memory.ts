@@ -31,13 +31,14 @@ export class InMemoryUserRepository implements UserRepository {
     return user;
   }
 
-  async updatePreferences(id: string, changes: { reportingCurrency?: Currency | undefined; monthlyIncomeGoal?: User['monthlyIncomeGoal'] | undefined }): Promise<void> {
+  async updatePreferences(id: string, changes: { reportingCurrency?: Currency | undefined; monthlyIncomeGoal?: User['monthlyIncomeGoal'] | undefined; dividendCutThreshold?: User['dividendCutThreshold'] | undefined }): Promise<void> {
     const user = this.users.get(id);
     if (!user) return;
     this.users.set(id, {
       ...user,
       ...(changes.reportingCurrency ? { reportingCurrency: changes.reportingCurrency } : {}),
       ...(changes.monthlyIncomeGoal !== undefined ? { monthlyIncomeGoal: changes.monthlyIncomeGoal } : {}),
+      ...(changes.dividendCutThreshold ? { dividendCutThreshold: changes.dividendCutThreshold } : {}),
     });
   }
 }

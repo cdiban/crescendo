@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { Plus, Search } from 'lucide-react';
-import type { Account, Api, Currency, Instrument, InstrumentType, Market } from '../../api/client.ts';
+import type { Account, Api, Currency, Instrument, InstrumentType, Market, Preferences } from '../../api/client.ts';
 import { InputError } from '../../api/errors.ts';
 import { DataTable, Pager } from '../../components/DataTable.tsx';
 import { FormField, FormGrid } from '../../components/form.tsx';
@@ -26,7 +26,7 @@ export function SettingsScreen({ api }: { api: Api }) {
         <TabsList>
           <TabsTrigger value="accounts">Cuentas</TabsTrigger>
           <TabsTrigger value="instruments">Instrumentos</TabsTrigger>
-          <TabsTrigger value="goal">Meta de ingreso</TabsTrigger>
+          <TabsTrigger value="goal">Metas y alertas</TabsTrigger>
         </TabsList>
         <TabsContent value="accounts" className="flex min-h-0 flex-1 flex-col gap-3">
           <AccountsSection api={api} />
@@ -35,17 +35,89 @@ export function SettingsScreen({ api }: { api: Api }) {
           <InstrumentsSection api={api} />
         </TabsContent>
         <TabsContent value="goal" className="min-h-0 flex-1 overflow-auto">
-          <IncomeGoalSection api={api} />
+          <PreferencesTab api={api} />
         </TabsContent>
       </Tabs>
     </>
   );
 }
 
-// ── Meta de ingreso pasivo (P2) ──
+// ── Preferencias: meta de ingreso pasivo (P2) y umbral de recorte (P4) ──
 
-function IncomeGoalSection({ api }: { api: Api }) {
+type PrefsState = { data: Preferences | undefined; error: unknown };
+
+function PreferencesTab({ api }: { api: Api }) {
   const prefs = useAsync(() => api.getPreferences(), [api]);
+  return (
+    <div className="grid max-w-xl gap-8">
+      <IncomeGoalSection api={api} prefs={prefs} />
+      <CutThresholdSection api={api} prefs={prefs} />
+    </div>
+  );
+}
+
+const MIN_THRESHOLD = 1;
+const MAX_THRESHOLD = 99;
+
+function CutThresholdSection({ api, prefs }: { api: Api; prefs: PrefsState }) {
+  const [percent, setPercent] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (prefs.data) setPercent(fractionToPercent(prefs.data.dividendCutThreshold).replace('.', ','));
+  }, [prefs.data]);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    // Validación del input (formateo % ↔ fracción); el umbral lo aplica la API.
+    const value = normalizeDecimal(percent);
+    const fraction = value && percentToFraction(value);
+    if (!value || !fraction || Number(value) < MIN_THRESHOLD || Number(value) > MAX_THRESHOLD) {
+      setError(`El umbral debe estar entre ${MIN_THRESHOLD} y ${MAX_THRESHOLD} %.`);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await api.updatePreferences({ dividendCutThreshold: fraction });
+      setPercent(fractionToPercent(saved.dividendCutThreshold).replace('.', ','));
+      setMessage(`Umbral guardado: ${formatPercent(saved.dividendCutThreshold)}.`);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="grid gap-4" aria-label="Umbral de recorte" onSubmit={save} noValidate>
+      <div className="grid gap-1">
+        <h2 className="font-heading text-base font-semibold">Umbral de recorte del dividendo</h2>
+        <p className="text-sm text-muted-foreground">
+          Caída del dividendo por acción que Análisis marca como recorte (en los últimos 12 meses o en el último pago regular). Una caída
+          menor se muestra como baja leve.
+        </p>
+      </div>
+      <FormGrid className="lg:grid-cols-2">
+        <FormField label="Umbral de recorte (%)" htmlFor="cut-threshold" hint="Entre 1 y 99 %. Por defecto 10 %.">
+          <Input id="cut-threshold" inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} disabled={!prefs.data} />
+        </FormField>
+      </FormGrid>
+      <ErrorAlert error={error} />
+      {message && <Success>{message}</Success>}
+      <div className="flex justify-end">
+        <Button type="submit" disabled={busy || !prefs.data}>
+          {busy ? 'Guardando…' : 'Guardar umbral'}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function IncomeGoalSection({ api, prefs }: { api: Api; prefs: PrefsState }) {
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState<Currency>('CLP');
   const [hasGoal, setHasGoal] = useState(false);
@@ -100,7 +172,7 @@ function IncomeGoalSection({ api }: { api: Api }) {
   }
 
   return (
-    <form className="grid max-w-xl gap-4" aria-label="Meta de ingreso pasivo" onSubmit={save} noValidate>
+    <form className="grid gap-4" aria-label="Meta de ingreso pasivo" onSubmit={save} noValidate>
       <div className="grid gap-1">
         <h2 className="font-heading text-base font-semibold">Meta de ingreso pasivo</h2>
         <p className="text-sm text-muted-foreground">

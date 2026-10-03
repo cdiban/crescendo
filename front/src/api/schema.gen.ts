@@ -485,6 +485,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dividends/per-share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * (v0.6) P4 — Dividendo por acción, crecimiento y alertas de recorte por instrumento abierto
+         * @description Una fila por instrumento con posición abierta (agregado entre cuentas). Sólo dividendos PAID. Ventanas por fecha de pago.
+         *     - `years`: Σ DPA por año calendario (todos los tipos). `partial` = año en curso o año en que no se tuvo la posición completa
+         *       (primera compra después del 1 de enero); `growth` sólo entre dos años no parciales consecutivos, si no null.
+         *     - TTM = (hoy − 12 meses, hoy]; TTM anterior = (hoy − 24 meses, hoy − 12 meses]. Ambos **excluyen SPECIAL**.
+         *       `ttmGrowth` = ttm / previousTtm − 1, sólo si la primera compra es anterior o igual al inicio del TTM anterior y previousTtm > 0; si no null.
+         *     - `cagr` = (DPA último año no parcial / DPA primer año no parcial)^(1/(n−1)) − 1 con n ≥ 2 años no parciales; si no null.
+         *     - `lastRegular` / `previousRegular`: los dos últimos pagos de tipo REGULAR (null si no hay). Un pago es `estimated` si su DPA es
+         *       derivado, no tiene exDate y hubo compras o ventas del instrumento en los 45 días previos a la fecha de pago (la cantidad
+         *       a la fecha de pago puede no ser la elegible en la fecha ex).
+         *       (Si el DPA es derivado sin exDate pero la cantidad no cambió en esos 45 días, se considera confiable: `estimated` = false.)
+         *     - `status` (se evalúa en este orden):
+         *       1. SUSPENDED: previousTtm > 0 y ningún pago (no SPECIAL) en el TTM.
+         *       2. CUT: ttmGrowth ≤ −umbral, o lastRegular / previousRegular − 1 ≤ −umbral **sólo si ninguno de los dos pagos es `estimated`**.
+         *       3. INSUFFICIENT_DATA: ttmGrowth null.
+         *       4. DOWN: ttmGrowth < 0. 5. STABLE: ttmGrowth ≤ 0.02. 6. GROWING: ttmGrowth > 0.02.
+         *     - `cutReason`: TTM | LAST_REGULAR | null (si CUT por ambas, TTM).
+         *     - `dataQuality`: EXACT (todos los pagos usados traen perShare), DERIVED (alguno derivado), PARTIAL (algún pago excluido por cantidad 0 a la fecha).
+         *     Orden: status (SUSPENDED, CUT, DOWN, INSUFFICIENT_DATA, STABLE, GROWING) y luego symbol.
+         */
+        get: operations["getDividendsPerShare"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dividends/year-over-year": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * (v0.6) Dividendos netos por mes calendario, un bloque por año, para comparar año contra año
+         * @description Sin `currency`: todos los dividendos en moneda de reporte, cada uno a TC de su fecha de pago (como /dividends/monthly).
+         *     Con `currency`: sólo dividendos de instrumentos en esa moneda, en esa moneda y sin conversión (aísla el efecto cambiario).
+         *     Por mes: `paidNet` (PAID), `announcedNet` (ANNOUNCED), `ytdPaidNet` = Σ paidNet de enero a ese mes (null en meses posteriores
+         *     al mes actual del año en curso), `growthVsPreviousYear` = paidNet / paidNet del mismo mes del año anterior − 1
+         *     (null si ese mes del año anterior es 0, si el año anterior no está en el rango de datos o si el mes es posterior al actual).
+         *     Por año: `totalPaidNet` y `growth` (como `years[].growth` de /dividends/monthly: el año en curso contra el mismo período del anterior).
+         */
+        get: operations["getDividendsYearOverYear"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/portfolio/allocation": {
         parameters: {
             query?: never;
@@ -734,6 +796,13 @@ export interface components {
              * @enum {string}
              */
             source: "MANUAL" | "AUTOMATIC" | "IMPORT";
+            /**
+             * @description (v0.6) Sólo lectura; no null sólo si source = IMPORT. INFERRED_CONTRIBUTION = aporte inferido para que la caja no quede negativa;
+             *     UNASSIGNED_DEPOSIT = residuo depositado y no gastado al corte (no cuenta como aporte del período en la proyección);
+             *     RESIDUAL_ADJUSTMENT = ajuste negativo al corte.
+             * @enum {string|null}
+             */
+            importRole: "INFERRED_CONTRIBUTION" | "UNASSIGNED_DEPOSIT" | "RESIDUAL_ADJUSTMENT" | null;
             /** Format: uuid */
             tradeId: string | null;
             /** Format: uuid */
@@ -1109,6 +1178,42 @@ export interface components {
             reportingCurrency: components["schemas"]["Currency"];
             /** @description (v0.5) P2: gasto mensual objetivo, en la moneda que el usuario elija */
             monthlyIncomeGoal: components["schemas"]["Money"] | null;
+            /** @description (v0.6) P4: caída que se considera recorte, fracción. Default "0.10" */
+            dividendCutThreshold: components["schemas"]["Decimal"];
+        };
+        DividendPerShareRow: {
+            /** Format: uuid */
+            instrumentId: string;
+            symbol: string;
+            name: string;
+            /** @description La del instrumento; todos los DPA van en ella */
+            currency: components["schemas"]["Currency"];
+            firstTradeDate: components["schemas"]["Date"];
+            /** @description Ascendente, desde el primer año con dividendos PAID */
+            years: {
+                year: number;
+                perShare: components["schemas"]["Decimal"];
+                growth: components["schemas"]["Decimal"] | null;
+                partial: boolean;
+            }[];
+            ttmPerShare: components["schemas"]["Decimal"];
+            previousTtmPerShare: components["schemas"]["Decimal"];
+            ttmGrowth: components["schemas"]["Decimal"] | null;
+            cagr: components["schemas"]["Decimal"] | null;
+            lastRegular: components["schemas"]["DividendPerSharePayment"] | null;
+            previousRegular: components["schemas"]["DividendPerSharePayment"] | null;
+            /** @enum {string} */
+            status: "SUSPENDED" | "CUT" | "DOWN" | "INSUFFICIENT_DATA" | "STABLE" | "GROWING";
+            /** @enum {string|null} */
+            cutReason: "TTM" | "LAST_REGULAR" | null;
+            /** @enum {string} */
+            dataQuality: "EXACT" | "DERIVED" | "PARTIAL";
+        };
+        DividendPerSharePayment: {
+            paymentDate: components["schemas"]["Date"];
+            perShare: components["schemas"]["Decimal"];
+            /** @description (v0.6) true = DPA derivado poco confiable (ver /dividends/per-share); no dispara CUT por LAST_REGULAR */
+            estimated: boolean;
         };
         PortfolioSummary: {
             reportingCurrency: components["schemas"]["Currency"];
@@ -1167,6 +1272,12 @@ export interface components {
                 coverageLast12Months: components["schemas"]["Decimal"];
                 /** @description (expectedAnnualNet / 12) / monthlyGoalReporting */
                 coverageExpected: components["schemas"]["Decimal"];
+            };
+            /** @description (v0.6) P4. Conteo de instrumentos abiertos por estado de /dividends/per-share con el umbral de las preferencias */
+            dividendAlerts: {
+                cut: number;
+                suspended: number;
+                down: number;
             };
             /** @description Distribución por moneda de (costo vigente a TC actual + caja); suma 1 */
             exposure: {
@@ -2439,6 +2550,85 @@ export interface operations {
             422: components["responses"]["BusinessRule"];
         };
     };
+    getDividendsPerShare: {
+        parameters: {
+            query?: {
+                /** @description Fracción (0,1). Default la preferencia dividendCutThreshold */
+                cutThreshold?: components["schemas"]["Decimal"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DPA por instrumento */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        asOf: components["schemas"]["Date"];
+                        cutThreshold: components["schemas"]["Decimal"];
+                        items: components["schemas"]["DividendPerShareRow"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getDividendsYearOverYear: {
+        parameters: {
+            query?: {
+                /** @description Default la preferencia del usuario */
+                reportingCurrency?: components["parameters"]["ReportingCurrency"];
+                /** @description Moneda original a filtrar (sin conversión) */
+                currency?: components["schemas"]["Currency"];
+                /** @description Años separados por coma, máx. 6. Default: los 3 últimos incluido el actual */
+                years?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bloques anuales en orden ascendente */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Moneda de todos los montos */
+                        amountCurrency: components["schemas"]["Currency"];
+                        /** @description true = moneda de reporte con conversión; false = moneda original filtrada */
+                        converted: boolean;
+                        /** @description Años con algún dividendo (para el selector) */
+                        availableYears: number[];
+                        years: {
+                            year: number;
+                            totalPaidNet: components["schemas"]["Decimal"];
+                            totalAnnouncedNet: components["schemas"]["Decimal"];
+                            growth: components["schemas"]["Decimal"] | null;
+                            months: {
+                                month: number;
+                                paidNet: components["schemas"]["Decimal"];
+                                announcedNet: components["schemas"]["Decimal"];
+                                ytdPaidNet: components["schemas"]["Decimal"] | null;
+                                growthVsPreviousYear: components["schemas"]["Decimal"] | null;
+                            }[];
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
     getPortfolioAllocation: {
         parameters: {
             query: {
@@ -2611,6 +2801,8 @@ export interface operations {
                     reportingCurrency?: components["schemas"]["Currency"];
                     /** @description (v0.5) Gasto mensual objetivo a cubrir con dividendos; null lo elimina. amount > 0. */
                     monthlyIncomeGoal?: components["schemas"]["Money"] | null;
+                    /** @description (v0.6) Fracción 0 < x < 1 (p. ej. "0.10"); fuera de rango → 400 */
+                    dividendCutThreshold?: components["schemas"]["Decimal"];
                 };
             };
         };

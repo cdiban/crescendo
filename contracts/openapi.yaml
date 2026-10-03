@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Crescendo API
-  version: 0.5.0
+  version: 0.6.0
   description: |
     Contrato de la API de Crescendo. Fuente de verdad compartida por Crescendo Back y Crescendo Front.
     Cualquier cambio se propone al orquestador (Crescendo) antes de aplicarse.
@@ -25,6 +25,9 @@ info:
     - (v0.4) Precios: "precio actual" = última cotización guardada (proveedor o manual), con su `priceAsOf`. Precio de una fecha pasada =
       último cierre en o antes de esa fecha. Si una posición no tiene precio, sus campos de mercado son null y no suman en los totales
       (los totales informan `pricedCoverage`).
+    - (v0.6) Dividendo por acción (DPA): siempre en la **moneda del instrumento** (nunca convertido). Si el dividendo no trae `perShare`,
+      se deriva como bruto / cantidad en cartera (todas las cuentas del usuario) a `exDate` o, si no hay, a `paymentDate`.
+      Un mismo pago (instrumento + fecha de pago) repartido en varias cuentas cuenta una vez: Σ bruto / Σ cantidad.
 servers:
   - url: /api/v1
 tags:
@@ -850,6 +853,102 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/BusinessRule' }
 
+  /dividends/per-share:
+    get:
+      tags: [dividends]
+      operationId: getDividendsPerShare
+      summary: (v0.6) P4 — Dividendo por acción, crecimiento y alertas de recorte por instrumento abierto
+      description: |
+        Una fila por instrumento con posición abierta (agregado entre cuentas). Sólo dividendos PAID. Ventanas por fecha de pago.
+        - `years`: Σ DPA por año calendario (todos los tipos). `partial` = año en curso o año en que no se tuvo la posición completa
+          (primera compra después del 1 de enero); `growth` sólo entre dos años no parciales consecutivos, si no null.
+        - TTM = (hoy − 12 meses, hoy]; TTM anterior = (hoy − 24 meses, hoy − 12 meses]. Ambos **excluyen SPECIAL**.
+          `ttmGrowth` = ttm / previousTtm − 1, sólo si la primera compra es anterior o igual al inicio del TTM anterior y previousTtm > 0; si no null.
+        - `cagr` = (DPA último año no parcial / DPA primer año no parcial)^(1/(n−1)) − 1 con n ≥ 2 años no parciales; si no null.
+        - `lastRegular` / `previousRegular`: los dos últimos pagos de tipo REGULAR (null si no hay). Un pago es `estimated` si su DPA es
+          derivado, no tiene exDate y hubo compras o ventas del instrumento en los 45 días previos a la fecha de pago (la cantidad
+          a la fecha de pago puede no ser la elegible en la fecha ex).
+          (Si el DPA es derivado sin exDate pero la cantidad no cambió en esos 45 días, se considera confiable: `estimated` = false.)
+        - `status` (se evalúa en este orden):
+          1. SUSPENDED: previousTtm > 0 y ningún pago (no SPECIAL) en el TTM.
+          2. CUT: ttmGrowth ≤ −umbral, o lastRegular / previousRegular − 1 ≤ −umbral **sólo si ninguno de los dos pagos es `estimated`**.
+          3. INSUFFICIENT_DATA: ttmGrowth null.
+          4. DOWN: ttmGrowth < 0. 5. STABLE: ttmGrowth ≤ 0.02. 6. GROWING: ttmGrowth > 0.02.
+        - `cutReason`: TTM | LAST_REGULAR | null (si CUT por ambas, TTM).
+        - `dataQuality`: EXACT (todos los pagos usados traen perShare), DERIVED (alguno derivado), PARTIAL (algún pago excluido por cantidad 0 a la fecha).
+        Orden: status (SUSPENDED, CUT, DOWN, INSUFFICIENT_DATA, STABLE, GROWING) y luego symbol.
+      parameters:
+        - { name: cutThreshold, in: query, description: 'Fracción (0,1). Default la preferencia dividendCutThreshold', schema: { $ref: '#/components/schemas/Decimal' } }
+      responses:
+        '200':
+          description: DPA por instrumento
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [asOf, cutThreshold, items]
+                properties:
+                  asOf: { $ref: '#/components/schemas/Date' }
+                  cutThreshold: { $ref: '#/components/schemas/Decimal' }
+                  items: { type: array, items: { $ref: '#/components/schemas/DividendPerShareRow' } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /dividends/year-over-year:
+    get:
+      tags: [dividends]
+      operationId: getDividendsYearOverYear
+      summary: (v0.6) Dividendos netos por mes calendario, un bloque por año, para comparar año contra año
+      description: |
+        Sin `currency`: todos los dividendos en moneda de reporte, cada uno a TC de su fecha de pago (como /dividends/monthly).
+        Con `currency`: sólo dividendos de instrumentos en esa moneda, en esa moneda y sin conversión (aísla el efecto cambiario).
+        Por mes: `paidNet` (PAID), `announcedNet` (ANNOUNCED), `ytdPaidNet` = Σ paidNet de enero a ese mes (null en meses posteriores
+        al mes actual del año en curso), `growthVsPreviousYear` = paidNet / paidNet del mismo mes del año anterior − 1
+        (null si ese mes del año anterior es 0, si el año anterior no está en el rango de datos o si el mes es posterior al actual).
+        Por año: `totalPaidNet` y `growth` (como `years[].growth` de /dividends/monthly: el año en curso contra el mismo período del anterior).
+      parameters:
+        - $ref: '#/components/parameters/ReportingCurrency'
+        - { name: currency, in: query, description: 'Moneda original a filtrar (sin conversión)', schema: { $ref: '#/components/schemas/Currency' } }
+        - { name: years, in: query, description: 'Años separados por coma, máx. 6; se respetan aunque estén en 0. Default: los 3 últimos de availableYears (puede ser menos de 3)', schema: { type: string, pattern: '^\d{4}(,\d{4}){0,5}$' } }
+      responses:
+        '200':
+          description: Bloques anuales en orden ascendente
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [amountCurrency, converted, availableYears, years]
+                properties:
+                  amountCurrency: { $ref: '#/components/schemas/Currency', description: Moneda de todos los montos }
+                  converted: { type: boolean, description: true = moneda de reporte con conversión; false = moneda original filtrada }
+                  availableYears: { type: array, items: { type: integer }, description: Años con algún dividendo (para el selector) }
+                  years:
+                    type: array
+                    items:
+                      type: object
+                      required: [year, totalPaidNet, totalAnnouncedNet, growth, months]
+                      properties:
+                        year: { type: integer }
+                        totalPaidNet: { $ref: '#/components/schemas/Decimal' }
+                        totalAnnouncedNet: { $ref: '#/components/schemas/Decimal' }
+                        growth: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+                        months:
+                          type: array
+                          minItems: 12
+                          maxItems: 12
+                          items:
+                            type: object
+                            required: [month, paidNet, announcedNet, ytdPaidNet, growthVsPreviousYear]
+                            properties:
+                              month: { type: integer, minimum: 1, maximum: 12 }
+                              paidNet: { $ref: '#/components/schemas/Decimal' }
+                              announcedNet: { $ref: '#/components/schemas/Decimal' }
+                              ytdPaidNet: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+                              growthVsPreviousYear: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
   /portfolio/allocation:
     get:
       tags: [portfolio]
@@ -987,6 +1086,7 @@ paths:
               properties:
                 reportingCurrency: { $ref: '#/components/schemas/Currency' }
                 monthlyIncomeGoal: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }], description: '(v0.5) Gasto mensual objetivo a cubrir con dividendos; null lo elimina. amount > 0.' }
+                dividendCutThreshold: { $ref: '#/components/schemas/Decimal', description: '(v0.6) Fracción 0 < x < 1 (p. ej. "0.10"); fuera de rango → 400' }
       responses:
         '200':
           description: Actualizadas
@@ -1161,7 +1261,7 @@ components:
         Automáticos: TRADE (de una operación), DIVIDEND (de un dividendo PAID), TRANSFER_IN/OUT (de /cash-transfers).
     CashMovement:
       type: object
-      required: [id, accountId, date, type, amount, currency, description, source, tradeId, dividendId, transferId]
+      required: [id, accountId, date, type, amount, currency, description, source, importRole, tradeId, dividendId, transferId]
       properties:
         id: { type: string, format: uuid }
         accountId: { type: string, format: uuid }
@@ -1171,6 +1271,13 @@ components:
         currency: { $ref: '#/components/schemas/Currency' }
         description: { type: [string, 'null'] }
         source: { type: string, enum: [MANUAL, AUTOMATIC, IMPORT], description: IMPORT = creado por la importación inicial (p. ej. aportes inferidos) }
+        importRole:
+          type: [string, 'null']
+          enum: [INFERRED_CONTRIBUTION, UNASSIGNED_DEPOSIT, RESIDUAL_ADJUSTMENT, null]
+          description: |
+            (v0.6) Sólo lectura; no null sólo si source = IMPORT. INFERRED_CONTRIBUTION = aporte inferido para que la caja no quede negativa;
+            UNASSIGNED_DEPOSIT = residuo depositado y no gastado al corte (no cuenta como aporte del período en la proyección);
+            RESIDUAL_ADJUSTMENT = ajuste negativo al corte.
         tradeId: { type: [string, 'null'], format: uuid }
         dividendId: { type: [string, 'null'], format: uuid }
         transferId: { type: [string, 'null'], format: uuid }
@@ -1506,13 +1613,50 @@ components:
         source: { type: string, description: 'Ej. "mindicador:dolar" o "derived:CLP"' }
     Preferences:
       type: object
-      required: [reportingCurrency, monthlyIncomeGoal]
+      required: [reportingCurrency, monthlyIncomeGoal, dividendCutThreshold]
       properties:
         reportingCurrency: { $ref: '#/components/schemas/Currency', description: Default USD }
         monthlyIncomeGoal: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }], description: '(v0.5) P2: gasto mensual objetivo, en la moneda que el usuario elija' }
+        dividendCutThreshold: { $ref: '#/components/schemas/Decimal', description: '(v0.6) P4: caída que se considera recorte, fracción. Default "0.10"' }
+    DividendPerShareRow:
+      type: object
+      required: [instrumentId, symbol, name, currency, firstTradeDate, years, ttmPerShare, previousTtmPerShare, ttmGrowth, cagr, lastRegular, previousRegular, status, cutReason, dataQuality]
+      properties:
+        instrumentId: { type: string, format: uuid }
+        symbol: { type: string }
+        name: { type: string }
+        currency: { $ref: '#/components/schemas/Currency', description: La del instrumento; todos los DPA van en ella }
+        firstTradeDate: { $ref: '#/components/schemas/Date' }
+        years:
+          type: array
+          description: Ascendente, desde el primer año con dividendos PAID
+          items:
+            type: object
+            required: [year, perShare, growth, partial]
+            properties:
+              year: { type: integer }
+              perShare: { $ref: '#/components/schemas/Decimal' }
+              growth: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+              partial: { type: boolean }
+        ttmPerShare: { $ref: '#/components/schemas/Decimal' }
+        previousTtmPerShare: { $ref: '#/components/schemas/Decimal' }
+        ttmGrowth: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+        cagr: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+        lastRegular: { oneOf: [{ $ref: '#/components/schemas/DividendPerSharePayment' }, { type: 'null' }] }
+        previousRegular: { oneOf: [{ $ref: '#/components/schemas/DividendPerSharePayment' }, { type: 'null' }] }
+        status: { type: string, enum: [SUSPENDED, CUT, DOWN, INSUFFICIENT_DATA, STABLE, GROWING] }
+        cutReason: { type: [string, 'null'], enum: [TTM, LAST_REGULAR, null] }
+        dataQuality: { type: string, enum: [EXACT, DERIVED, PARTIAL] }
+    DividendPerSharePayment:
+      type: object
+      required: [paymentDate, perShare, estimated]
+      properties:
+        paymentDate: { $ref: '#/components/schemas/Date' }
+        perShare: { $ref: '#/components/schemas/Decimal' }
+        estimated: { type: boolean, description: '(v0.6) true = DPA derivado poco confiable (ver /dividends/per-share); no dispara CUT por LAST_REGULAR' }
     PortfolioSummary:
       type: object
-      required: [reportingCurrency, asOf, fxAsOf, contributedCapital, costBasis, costBasisAtCurrentRate, cash, fxEffect, realizedGain, dividends, exposure, marketValue, netWorth, priceEffect, unrealizedGain, totalGain, pricedCoverage, pricesAsOf, pricesDate, incomeGoal]
+      required: [reportingCurrency, asOf, fxAsOf, contributedCapital, costBasis, costBasisAtCurrentRate, cash, fxEffect, realizedGain, dividends, exposure, marketValue, netWorth, priceEffect, unrealizedGain, totalGain, pricedCoverage, pricesAsOf, pricesDate, incomeGoal, dividendAlerts]
       properties:
         reportingCurrency: { $ref: '#/components/schemas/Currency' }
         asOf: { $ref: '#/components/schemas/Date' }
@@ -1558,6 +1702,14 @@ components:
                 monthlyGoalReporting: { $ref: '#/components/schemas/Decimal', description: Meta mensual convertida a la moneda de reporte con TC actual }
                 coverageLast12Months: { $ref: '#/components/schemas/Decimal', description: '(netLast12Months / 12) / monthlyGoalReporting, fracción (puede ser > 1)' }
                 coverageExpected: { $ref: '#/components/schemas/Decimal', description: '(expectedAnnualNet / 12) / monthlyGoalReporting' }
+        dividendAlerts:
+          type: object
+          description: (v0.6) P4. Conteo de instrumentos abiertos por estado de /dividends/per-share con el umbral de las preferencias
+          required: [cut, suspended, down]
+          properties:
+            cut: { type: integer }
+            suspended: { type: integer }
+            down: { type: integer }
         exposure:
           type: array
           description: Distribución por moneda de (costo vigente a TC actual + caja); suma 1

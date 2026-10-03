@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react';
 import type { AllocationDimension, Api, Currency } from '../api/client.ts';
 import { CalendarChart } from '../components/charts/CalendarChart.tsx';
+import { DividendPerShareSection } from '../components/DividendPerShareSection.tsx';
 import { ErrorAlert, Loading, PageHeader, isZero } from '../components/ui.tsx';
 import { formatMoney, formatPercent } from '../lib/format.ts';
 import { useAsync } from '../lib/useAsync.ts';
@@ -21,9 +22,10 @@ export function AnalysisScreen({ api, reportingCurrency }: { api: Api; reporting
   const calendar = useAsync(() => api.getDividendCalendar({ reportingCurrency }), [api, reportingCurrency]);
   return (
     <>
-      <PageHeader title="Análisis" description="Concentración del patrimonio y de la renta, y los dividendos de los próximos 12 meses." />
+      <PageHeader title="Análisis" description="Concentración del patrimonio y de la renta, los dividendos de los próximos 12 meses y la salud del dividendo por acción." />
       <AllocationSection api={api} reportingCurrency={reportingCurrency} />
       <CalendarChart data={calendar.data} error={calendar.error} currency={reportingCurrency} />
+      <DividendPerShareSection api={api} />
     </>
   );
 }

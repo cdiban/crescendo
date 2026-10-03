@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { IMPORT_ROLES } from '../../domain/cash-movement.ts';
 import { DIVIDEND_KINDS, DIVIDEND_STATUSES } from '../../domain/dividend.ts';
 import { DomainError } from '../../domain/errors.ts';
 import { INSTRUMENT_TYPES } from '../../domain/instrument.ts';
@@ -94,13 +95,14 @@ export function parseBundle(json: unknown): BundleData {
       })),
     ),
     cashMovements: list(obj, 'cashMovements', errors, (v, p) =>
-      item(v, p, ['accountKey', 'date', 'type', 'amount', 'currency', 'description'], errors, (r) => ({
+      item(v, p, ['accountKey', 'date', 'type', 'amount', 'currency', 'description', 'importRole'], errors, (r) => ({
         accountKey: r.string('accountKey', { min: 1 })!,
         date: r.date('date')!,
         type: r.enumOf('type', ['DEPOSIT', 'ADJUSTMENT'] as const)!,
         amount: r.decimal('amount')!,
         currency: r.currency('currency')!,
         description: r.nullableString('description', { max: 200 }) ?? null,
+        importRole: r.enumOf('importRole', IMPORT_ROLES, { optional: true }) ?? null,
       })),
     ),
   };

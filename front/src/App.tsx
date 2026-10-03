@@ -87,7 +87,7 @@ function Routes({ api, reportingCurrency }: { api: Api; reportingCurrency: Curre
 
   // "/resumen/" o "/dividendos/" → sin barra final, para que el enlace activo coincida.
   useEffect(() => {
-    if (normalized !== path) navigate(normalized, { replace: true });
+    if (normalized !== path) navigate(normalized + window.location.search, { replace: true });
   }, [normalized, path]);
 
   const Screen = ROUTES[normalized];

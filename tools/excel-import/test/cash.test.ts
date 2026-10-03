@@ -39,7 +39,8 @@ describe('inferCashMovements (aportes inferidos)', () => {
       ['itau', '2025-01-10', 'DEPOSIT', '1000', 'CLP'],
       ['itau', '2026-10-03', 'DEPOSIT', '1500000', 'CLP'],
     ]);
-    assert.equal(up[1]!.description, 'Aporte no asignado (importación)');
+    assert.deepEqual([up[1]!.description, up[1]!.importRole], ['Aporte no asignado (importación)', 'UNASSIGNED_DEPOSIT']);
+    assert.equal(up[0]!.importRole, 'INFERRED_CONTRIBUTION');
   });
 
   test('residuo final negativo → ADJUSTMENT a cutoffDate', () => {
@@ -49,7 +50,7 @@ describe('inferCashMovements (aportes inferidos)', () => {
       cutoffDate: '2026-10-03',
     });
     assert.deepEqual(show(down), [['ib', '2026-10-03', 'ADJUSTMENT', '-30', 'USD']]);
-    assert.equal(down[0]!.description, 'Ajuste al saldo del Excel (importación)');
+    assert.deepEqual([down[0]!.description, down[0]!.importRole], ['Ajuste al saldo del Excel (importación)', 'RESIDUAL_ADJUSTMENT']);
   });
 
   test('cuentas y monedas independientes; orden cronológico sin importar la entrada', () => {

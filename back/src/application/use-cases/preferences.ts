@@ -1,8 +1,13 @@
 import type { Currency, Money } from '../../domain/currency.ts';
+import { Decimal } from '../../domain/decimal.ts';
+import type { User } from '../../domain/user.ts';
+import type { PreferenceChanges } from '../ports/user-repository.ts';
 import { NotFoundError, ValidationError } from '../errors.ts';
 import type { UnitOfWork } from '../ports/unit-of-work.ts';
 
-export type PreferencesView = { reportingCurrency: Currency; monthlyIncomeGoal: Money | null };
+export type PreferencesView = { reportingCurrency: Currency; monthlyIncomeGoal: Money | null; dividendCutThreshold: Decimal };
+
+const view = (u: User): PreferencesView => ({ reportingCurrency: u.reportingCurrency, monthlyIncomeGoal: u.monthlyIncomeGoal, dividendCutThreshold: u.dividendCutThreshold });
 
 export class Preferences {
   readonly #uow: UnitOfWork;
@@ -15,19 +20,23 @@ export class Preferences {
     return this.#uow.read(async (r) => {
       const user = await r.users.findById(userId);
       if (!user) throw new NotFoundError('El usuario');
-      return { reportingCurrency: user.reportingCurrency, monthlyIncomeGoal: user.monthlyIncomeGoal };
+      return view(user);
     });
   }
 
-  update(userId: string, changes: { reportingCurrency?: Currency | undefined; monthlyIncomeGoal?: Money | null | undefined }): Promise<PreferencesView> {
+  update(userId: string, changes: PreferenceChanges): Promise<PreferencesView> {
     return this.#uow.transaction(async (r) => {
       if (changes.monthlyIncomeGoal && !changes.monthlyIncomeGoal.amount.isPositive()) {
         throw new ValidationError([{ field: 'monthlyIncomeGoal.amount', message: 'Debe ser mayor que 0' }]);
       }
+      const t = changes.dividendCutThreshold;
+      if (t && (!t.isPositive() || t.gte(Decimal.ONE))) {
+        throw new ValidationError([{ field: 'dividendCutThreshold', message: 'Debe ser una fracción mayor que 0 y menor que 1' }]);
+      }
       await r.users.updatePreferences(userId, changes);
       const user = await r.users.findById(userId);
       if (!user) throw new NotFoundError('El usuario');
-      return { reportingCurrency: user.reportingCurrency, monthlyIncomeGoal: user.monthlyIncomeGoal };
+      return view(user);
     });
   }
 }

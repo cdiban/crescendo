@@ -3,13 +3,14 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { AnalysisScreen } from './AnalysisScreen.tsx';
 import { createApi } from '../api/client.ts';
 import { calls, mockFetch } from '../test/http.ts';
-import { allocation, calendar } from '../test/fixtures.ts';
+import { allocation, calendar, perShare, perShareRow } from '../test/fixtures.ts';
 
 const text = (el: Element) => (el.textContent ?? '').replace(/ /g, ' ');
 const routes = () => [
   { method: 'GET', path: '/api/v1/portfolio/allocation?by=sector&reportingCurrency=USD&limit=15', status: 200, body: allocation('sector') },
   { method: 'GET', path: '/api/v1/portfolio/allocation?by=instrument&reportingCurrency=USD&limit=15', status: 200, body: allocation('instrument') },
   { method: 'GET', path: '/api/v1/dividends/calendar', status: 200, body: calendar },
+  { method: 'GET', path: '/api/v1/dividends/per-share', status: 200, body: perShare },
 ];
 
 describe('AnalysisScreen — distribución', () => {
@@ -100,5 +101,133 @@ describe('AnalysisScreen — calendario de dividendos', () => {
       'octubre 2026US$312,40US$17,80US$330,20',
       'noviembre 2026———',
     ]);
+  });
+});
+
+describe('AnalysisScreen — dividendo por acción (P4)', () => {
+  beforeEach(() => window.history.replaceState(null, '', '/analisis'));
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  const table = async () => within(await screen.findByRole('table', { name: 'Dividendo por acción por instrumento' }));
+  const rowOf = (t: Awaited<ReturnType<typeof table>>, symbol: string) => t.getByRole('rowheader', { name: new RegExp(`^${symbol}\\b`) }).closest('tr')!;
+
+  it('muestra una fila por instrumento con DPA por año (en su moneda, con marca parcial), crecimiento, CAGR, TTM, último pago y estado', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const t = await table();
+
+    expect(t.getAllByRole('columnheader').map(text)).toEqual([
+      'Instrumento', 'DPA 2024', 'DPA 2025', 'DPA 2026', 'Crec. último año', 'CAGR', 'DPA 12 meses', 'Último pago regular', 'Estado',
+    ]);
+    const ko = rowOf(t, 'KO');
+    expect(within(ko).getAllByRole('cell').map(text)).toEqual([
+      'US$1,94', 'US$2,04', 'US$1,53parcial', '+5,15%2025', '+5,15%', 'US$2,04+3,55%', 'US$0,51antes US$0,51', 'Creciendo',
+    ]);
+    const pehuenche = rowOf(t, 'PEHUENCHE');
+    expect(within(pehuenche).getAllByRole('cell').map(text)).toEqual([
+      '$410,5parcial', '$362', '$180parcial', '—', '—', '$250-30,94%', '—', 'RecortePor TTM',
+    ]);
+    // El DPA de un instrumento sin un año queda en blanco ("—").
+    expect(within(rowOf(t, 'NEW')).getAllByRole('cell').slice(0, 3).map(text)).toEqual(['—', '—', '—']);
+  });
+
+  it('pinta cada estado con su tono y ordena como la API', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const t = await table();
+    const badges = t.getAllByTestId('dividend-status');
+    expect(badges.map((b) => [text(b), b.getAttribute('data-tone')])).toEqual([
+      ['Suspendido', 'negative'],
+      ['Recorte', 'negative'],
+      ['Baja leve', 'warning'],
+      ['Datos insuficientes', 'muted'],
+      ['Estable', 'neutral'],
+      ['Creciendo', 'positive'],
+    ]);
+  });
+
+  it('avisa cuando el DPA es estimado desde el monto cobrado (DERIVED o PARTIAL), no cuando es exacto', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const t = await table();
+    expect(within(rowOf(t, 'BITO')).getByRole('img', { name: 'DPA estimado desde el monto cobrado' })).toBeTruthy();
+    expect(within(rowOf(t, 'MO')).getByRole('img', { name: /DPA estimado desde el monto cobrado/ })).toBeTruthy();
+    expect(within(rowOf(t, 'KO')).queryByRole('img', { name: /estimado/ })).toBeNull();
+  });
+
+  it('explica que en Chile los dividendos varían con las utilidades y muestra el umbral usado', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    await table();
+    const section = screen.getByRole('region', { name: 'Dividendo por acción' });
+    expect(text(section)).toMatch(/En Chile los dividendos varían con las utilidades/);
+    expect(text(section)).toMatch(/indica que la renta bajó, no evalúa la empresa/);
+    expect(text(section)).toMatch(/Umbral de recorte: 10%/);
+    expect(text(section)).toMatch(/se necesitan 24 meses de tenencia/);
+  });
+
+  it('"Solo alertas" deja recorte, suspendido y baja leve, y lo refleja en la URL', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const t = await table();
+    expect(t.getAllByRole('rowheader')).toHaveLength(6);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Solo alertas' }));
+
+    expect(screen.getByRole('button', { name: 'Solo alertas' }).getAttribute('aria-pressed')).toBe('true');
+    expect((await table()).getAllByRole('rowheader').map((h) => text(h).split(/\s/)[0])).toEqual(['BITO', 'PEHUENCHE', 'MO']);
+    expect(window.location.search).toBe('?alertas=1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Solo alertas' }));
+    expect((await table()).getAllByRole('rowheader')).toHaveLength(6);
+    expect(window.location.search).toBe('');
+  });
+
+  it('abre con el filtro activo si la URL trae ?alertas=1 (enlace desde el Resumen)', async () => {
+    window.history.replaceState(null, '', '/analisis?alertas=1');
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    expect((await table()).getAllByRole('rowheader')).toHaveLength(3);
+    expect(screen.getByRole('button', { name: 'Solo alertas' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('con el filtro y sin alertas lo dice', async () => {
+    window.history.replaceState(null, '', '/analisis?alertas=1');
+    mockFetch(routes().map((r) => (r.path.endsWith('per-share') ? { ...r, body: { ...perShare, items: perShare.items.slice(3) } } : r)));
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    expect(await screen.findByText('Sin alertas: ningún instrumento con recorte, suspensión o baja leve.')).toBeTruthy();
+  });
+
+  it('al expandir una fila muestra el mini gráfico del DPA por año, con los años parciales marcados', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const t = await table();
+    const toggle = within(rowOf(t, 'PEHUENCHE')).getByRole('button', { name: 'Ver DPA por año de PEHUENCHE' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const chart = screen.getByRole('img', { name: /^DPA por año de PEHUENCHE/ });
+    expect(chart.getAttribute('aria-label')).toBe('DPA por año de PEHUENCHE: 2024 $410,5 (parcial), 2025 $362, 2026 $180 (parcial)');
+    expect(document.getElementById(toggle.getAttribute('aria-controls')!)).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(screen.queryByRole('img', { name: /^DPA por año de PEHUENCHE/ })).toBeNull();
+  });
+});
+
+describe('AnalysisScreen — pago regular estimado', () => {
+  it('marca el DPA de un pago regular estimado con ícono y explicación', async () => {
+    const estimated = { ...perShare, items: [perShareRow({ lastRegular: { paymentDate: '2026-07-01', perShare: '0.49', estimated: true } })] };
+    mockFetch(routes().map((r) => (r.path.endsWith('per-share') ? { ...r, body: estimated } : r)));
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const t = within(await screen.findByRole('table', { name: 'Dividendo por acción por instrumento' }));
+    const cells = t.getAllByRole('cell');
+    const last = cells[cells.length - 2]!;
+    expect(within(last).getByRole('img', { name: 'Calculado con la cantidad a la fecha de pago; puede diferir del dividendo real por acción' })).toBeTruthy();
+    expect(text(last)).toMatch(/estimado/);
+    // El anterior es exacto: una sola marca.
+    expect(within(last).getAllByRole('img')).toHaveLength(1);
   });
 });

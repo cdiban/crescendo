@@ -116,7 +116,7 @@ export const trade = (over: Partial<Trade> = {}): Trade => ({
 
 export const movement = (over: Partial<CashMovement> = {}): CashMovement => ({
   id: 'm0000000-0000-4000-8000-000000000001', accountId: ITAU, date: '2025-01-20', type: 'DEPOSIT', amount: '1000000', currency: 'CLP',
-  description: 'Aporte', source: 'MANUAL', tradeId: null, dividendId: null, transferId: null, ...over,
+  description: 'Aporte', source: 'MANUAL', importRole: null, tradeId: null, dividendId: null, transferId: null, ...over,
 });
 
 export const page = <T,>(items: T[], total = items.length) => ({ items, total });
@@ -133,6 +133,7 @@ export const portfolioSummary = (over: Partial<PortfolioSummary> = {}): Portfoli
   realizedGain: '204.1',
   dividends: { netYearToDate: '2100.55', netLast12Months: '2600', netTotal: '4300.2', expectedAnnualGross: '3100.4', expectedAnnualNet: '2790.36', currentYield: '0.0484' },
   incomeGoal: null,
+  dividendAlerts: { cut: 0, suspended: 0, down: 0 },
   pricesDate: '2026-10-02',
   marketValue: '64000.5',
   netWorth: '67434.6',
@@ -222,3 +223,64 @@ export const snowball = (over: Partial<SnowballProjection> = {}): SnowballProjec
 });
 
 export const incomeGoal = { goal: { amount: '500', currency: 'USD' as const }, monthlyGoalReporting: '500', coverageLast12Months: '0.5128', coverageExpected: '0.6788' };
+
+// ── Fase 5 ──
+import type { DividendPerShareRow, DividendsPerShare, DividendsYearOverYear } from '../api/client.ts';
+
+export const perShareRow = (over: Partial<DividendPerShareRow> = {}): DividendPerShareRow => ({
+  instrumentId: KO, symbol: 'KO', name: 'Coca-Cola', currency: 'USD', firstTradeDate: '2023-03-10',
+  years: [
+    { year: 2024, perShare: '1.94', growth: null, partial: false },
+    { year: 2025, perShare: '2.04', growth: '0.0515', partial: false },
+    { year: 2026, perShare: '1.53', growth: null, partial: true },
+  ],
+  ttmPerShare: '2.04', previousTtmPerShare: '1.97', ttmGrowth: '0.0355', cagr: '0.0515',
+  lastRegular: { paymentDate: '2026-07-01', perShare: '0.51', estimated: false }, previousRegular: { paymentDate: '2026-04-01', perShare: '0.51', estimated: false },
+  status: 'GROWING', cutReason: null, dataQuality: 'EXACT', ...over,
+});
+
+export const perShare: DividendsPerShare = {
+  asOf: '2026-10-04',
+  cutThreshold: '0.10',
+  items: [
+    perShareRow({ instrumentId: BITO, symbol: 'BITO', name: 'ProShares Bitcoin', ttmPerShare: '0', previousTtmPerShare: '3.1', ttmGrowth: null, cagr: null, status: 'SUSPENDED', dataQuality: 'DERIVED' }),
+    perShareRow({
+      instrumentId: PEHUENCHE, symbol: 'PEHUENCHE', name: 'Hidroeléctrica Pehuenche', currency: 'CLP',
+      years: [
+        { year: 2024, perShare: '410.5', growth: null, partial: true },
+        { year: 2025, perShare: '362', growth: null, partial: false },
+        { year: 2026, perShare: '180', growth: null, partial: true },
+      ],
+      ttmPerShare: '250', previousTtmPerShare: '362', ttmGrowth: '-0.3094', cagr: null,
+      lastRegular: null, previousRegular: null, status: 'CUT', cutReason: 'TTM', dataQuality: 'DERIVED',
+    }),
+    perShareRow({ instrumentId: 'i0000000-0000-4000-8000-000000000010', symbol: 'MO', name: 'Altria', ttmGrowth: '-0.04', status: 'DOWN', dataQuality: 'PARTIAL' }),
+    perShareRow({ instrumentId: 'i0000000-0000-4000-8000-000000000011', symbol: 'NEW', name: 'Nueva', years: [], ttmPerShare: '0.3', previousTtmPerShare: '0', ttmGrowth: null, cagr: null, lastRegular: null, previousRegular: null, status: 'INSUFFICIENT_DATA' }),
+    perShareRow({ instrumentId: 'i0000000-0000-4000-8000-000000000012', symbol: 'JNJ', name: 'Johnson & Johnson', ttmGrowth: '0.01', status: 'STABLE' }),
+    perShareRow(),
+  ],
+};
+
+const yoyMonths = (paid: Record<number, string>, opts: { announced?: Record<number, string>; ytd?: Record<number, string | null>; growth?: Record<number, string | null> } = {}) =>
+  Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1,
+    paidNet: paid[i + 1] ?? '0',
+    announcedNet: opts.announced?.[i + 1] ?? '0',
+    ytdPaidNet: opts.ytd && i + 1 in opts.ytd ? opts.ytd[i + 1]! : '100',
+    growthVsPreviousYear: opts.growth?.[i + 1] ?? null,
+  }));
+
+export const yearOverYear = (over: Partial<DividendsYearOverYear> = {}): DividendsYearOverYear => ({
+  amountCurrency: 'USD',
+  converted: true,
+  availableYears: [2022, 2023, 2024, 2025, 2026],
+  years: [
+    { year: 2024, totalPaidNet: '1250.4', totalAnnouncedNet: '0', growth: null, months: yoyMonths({ 3: '120.5' }) },
+    { year: 2025, totalPaidNet: '1881.45', totalAnnouncedNet: '0', growth: '0.5047', months: yoyMonths({ 3: '150.25' }, { growth: { 3: '0.2469' } }) },
+    {
+      year: 2026, totalPaidNet: '2312.59', totalAnnouncedNet: '267', growth: '0.4502',
+      months: yoyMonths({ 3: '180' }, { announced: { 10: '267' }, ytd: { 3: '400.1', 11: null, 12: null }, growth: { 3: '0.198' } }),
+    },
+  ],
+  ...over,
+});

@@ -74,3 +74,59 @@ export function dividendsByMonth(input: { dividends: readonly ReportedDividend[]
   }
   return { months, years };
 }
+
+export type YoyMonth = { month: number; paidNet: Decimal; announcedNet: Decimal; ytdPaidNet: Decimal | null; growthVsPreviousYear: Decimal | null };
+export type YoyYear = { year: number; totalPaidNet: Decimal; totalAnnouncedNet: Decimal; growth: Decimal | null; months: YoyMonth[] };
+
+/**
+ * Dividendos netos por mes calendario, un bloque por año pedido (ascendente), para comparar año
+ * contra año. Los acumulados y variaciones usan los montos mensuales ya redondeados, así lo que se
+ * muestra cuadra. Ver reglas de nulls en el contrato (/dividends/year-over-year).
+ */
+export function dividendsYearOverYear(input: { dividends: readonly ReportedDividend[]; years: readonly number[]; today: string }): {
+  availableYears: number[];
+  years: YoyYear[];
+} {
+  const availableYears = [...new Set(input.dividends.map((d) => Number(d.paymentDate.slice(0, 4))))].sort((a, b) => a - b);
+  const firstDataYear = availableYears[0] ?? Number.POSITIVE_INFINITY;
+  const currentYear = Number(input.today.slice(0, 4));
+  const currentMonth = Number(input.today.slice(5, 7));
+  const totals = dividendsByMonth({ dividends: input.dividends, from: `${input.today.slice(0, 4)}-01`, to: `${input.today.slice(0, 4)}-01`, today: input.today }).years;
+
+  const monthly = (year: number, status: 'PAID' | 'ANNOUNCED') =>
+    Array.from({ length: 12 }, (_, i) => {
+      const prefix = `${year}-${String(i + 1).padStart(2, '0')}`;
+      return roundAmount(Decimal.sum(input.dividends.filter((d) => d.status === status && d.paymentDate.startsWith(prefix)).map((d) => d.net)));
+    });
+  const isFuture = (year: number, month: number) => year > currentYear || (year === currentYear && month > currentMonth);
+
+  const years = [...new Set(input.years)].sort((a, b) => a - b).map((year) => {
+    const paid = monthly(year, 'PAID');
+    const announced = monthly(year, 'ANNOUNCED');
+    const previousPaid = year - 1 >= firstDataYear ? monthly(year - 1, 'PAID') : null;
+    let ytd = Decimal.ZERO;
+    const months = paid.map((paidNet, i) => {
+      const month = i + 1;
+      ytd = ytd.add(paidNet);
+      const previous = previousPaid?.[i];
+      return {
+        month,
+        paidNet,
+        announcedNet: announced[i]!,
+        ytdPaidNet: isFuture(year, month) ? null : ytd,
+        growthVsPreviousYear:
+          isFuture(year, month) || !previous || previous.isZero() ? null : paidNet.div(previous, RATE_SCALE).sub(Decimal.ONE),
+      };
+    });
+    const total = totals.find((t) => t.year === year);
+    return {
+      year,
+      totalPaidNet: Decimal.sum(paid),
+      totalAnnouncedNet: Decimal.sum(announced),
+      // Mismo crecimiento anual que /dividends/monthly (el año en curso contra el mismo período del anterior).
+      growth: year - 1 >= firstDataYear && year <= currentYear ? (total?.growth ?? null) : null,
+      months,
+    };
+  });
+  return { availableYears, years };
+}

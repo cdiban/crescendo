@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import type { Api, Currency, Dividend, DividendStatus, DividendSummary } from '../../api/client.ts';
 import { InputError } from '../../api/errors.ts';
@@ -18,6 +18,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const LIMIT = 100;
 const NUM = 'text-right tabular-nums';
+
+// El gráfico (Recharts) se descarga solo al abrir la pestaña: la lista no lo espera.
+const YearOverYearChart = lazy(() => import('../../components/charts/YearOverYearChart.tsx').then((m) => ({ default: m.YearOverYearChart })));
 
 export function DividendsScreen({ api, reportingCurrency }: { api: Api; reportingCurrency: Currency }) {
   const currentYear = Number(today().slice(0, 4));
@@ -124,9 +127,10 @@ export function DividendsScreen({ api, reportingCurrency }: { api: Api; reportin
       </div>
 
       <Tabs defaultValue="list" className="min-h-0 flex-1 gap-3">
-        <TabsList>
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="list">Registrados en {year}</TabsTrigger>
           <TabsTrigger value="summary">Resumen mensual</TabsTrigger>
+          <TabsTrigger value="yoy">Año contra año</TabsTrigger>
         </TabsList>
 
         <TabsContent value="list" className="flex min-h-0 flex-1 flex-col">
@@ -202,6 +206,12 @@ export function DividendsScreen({ api, reportingCurrency }: { api: Api; reportin
 
         <TabsContent value="summary" className="min-h-0 flex-1 overflow-auto">
           <SummarySection year={year} summary={summary.data} error={summary.error} />
+        </TabsContent>
+
+        <TabsContent value="yoy" className="min-h-0 flex-1 overflow-auto">
+          <Suspense fallback={<Loading lines={4} />}>
+            <YearOverYearChart api={api} reportingCurrency={reportingCurrency} />
+          </Suspense>
         </TabsContent>
       </Tabs>
 

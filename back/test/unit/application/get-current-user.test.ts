@@ -1,5 +1,6 @@
 import { beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { Decimal } from '../../../src/domain/decimal.ts';
 import { Email } from '../../../src/domain/email.ts';
 import type { User } from '../../../src/domain/user.ts';
 import { UnauthenticatedError } from '../../../src/application/errors.ts';
@@ -25,7 +26,7 @@ describe('GetCurrentUser', () => {
     sessions = new InMemorySessionRepository();
     clock = new FixedClock(NOW);
     useCase = new GetCurrentUser({ users, sessions, tokens: new SequentialTokenGenerator(), clock });
-    user = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW, reportingCurrency: 'USD', monthlyIncomeGoal: null });
+    user = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW, reportingCurrency: 'USD', monthlyIncomeGoal: null, dividendCutThreshold: Decimal.parse('0.1') });
     await sessions.add({
       tokenHash: 'sha:tok',
       userId: user.id,

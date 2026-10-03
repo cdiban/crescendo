@@ -24,11 +24,11 @@ beforeEach(async () => {
 
 describe('preferencias', () => {
   test('moneda de reporte por defecto USD; PATCH la cambia', async () => {
-    assert.deepEqual(await expectStatus(await ana.get('/me/preferences'), 200), { reportingCurrency: 'USD', monthlyIncomeGoal: null });
-    assert.deepEqual(await expectStatus(await ana.patch('/me/preferences', { reportingCurrency: 'CLP' }), 200), { reportingCurrency: 'CLP', monthlyIncomeGoal: null });
-    assert.deepEqual(await expectStatus(await ana.get('/me/preferences'), 200), { reportingCurrency: 'CLP', monthlyIncomeGoal: null });
+    assert.deepEqual(await expectStatus(await ana.get('/me/preferences'), 200), { reportingCurrency: 'USD', monthlyIncomeGoal: null, dividendCutThreshold: '0.1' });
+    assert.deepEqual(await expectStatus(await ana.patch('/me/preferences', { reportingCurrency: 'CLP' }), 200), { reportingCurrency: 'CLP', monthlyIncomeGoal: null, dividendCutThreshold: '0.1' });
+    assert.deepEqual(await expectStatus(await ana.get('/me/preferences'), 200), { reportingCurrency: 'CLP', monthlyIncomeGoal: null, dividendCutThreshold: '0.1' });
     const beto = await h.as('beto@example.com');
-    assert.deepEqual(await expectStatus(await beto.get('/me/preferences'), 200), { reportingCurrency: 'USD', monthlyIncomeGoal: null });
+    assert.deepEqual(await expectStatus(await beto.get('/me/preferences'), 200), { reportingCurrency: 'USD', monthlyIncomeGoal: null, dividendCutThreshold: '0.1' });
   });
 
   test('validación y autenticación', async () => {

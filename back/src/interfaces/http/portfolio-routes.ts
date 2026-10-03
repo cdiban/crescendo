@@ -28,6 +28,8 @@ import {
   presentPreferences,
   presentDividendsMonthly,
   presentCalendar,
+  presentPerShare,
+  presentYearOverYear,
   presentAllocation,
   presentSnowball,
   presentPositions,
@@ -139,10 +141,13 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
   // ── Preferencias y tipos de cambio (v0.3) ──
   router.add('GET', `${API}/me/preferences`, authed(async (_req, user) => ok(presentPreferences(await preferences.get(user.id)))));
   router.add('PATCH', `${API}/me/preferences`, authed(async (req, user) => {
-    const r = Reader.body(req.body, ['reportingCurrency', 'monthlyIncomeGoal'], { minProperties: 1 });
-    const changes: { reportingCurrency?: Currency | undefined; monthlyIncomeGoal?: Money | null | undefined } = {
+    const r = Reader.body(req.body, ['reportingCurrency', 'monthlyIncomeGoal', 'dividendCutThreshold'], { minProperties: 1 });
+    const changes: { reportingCurrency?: Currency | undefined; monthlyIncomeGoal?: Money | null | undefined; dividendCutThreshold?: Decimal | undefined } = {
       reportingCurrency: r.currency('reportingCurrency', { optional: true }),
+      dividendCutThreshold: r.decimal('dividendCutThreshold', { optional: true }),
     };
+    const t = changes.dividendCutThreshold;
+    if (t && (!t.isPositive() || t.gte(Decimal.ONE))) r.errors.push({ field: 'dividendCutThreshold', message: 'Debe ser mayor que 0 y menor que 1' });
     const goal = (req.body as Record<string, unknown>).monthlyIncomeGoal;
     if (goal === null) changes.monthlyIncomeGoal = null;
     else if (goal !== undefined) {
@@ -317,6 +322,23 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
     };
     r.finish();
     return ok(presentDividendsMonthly(await portfolio.dividendsMonthly(user.id, query)));
+  }));
+  router.add('GET', `${API}/dividends/per-share`, authed(async (req, user) => {
+    const r = Reader.query(req.query);
+    const cutThreshold = r.decimal('cutThreshold', { optional: true });
+    if (cutThreshold && (!cutThreshold.isPositive() || cutThreshold.gte(Decimal.ONE))) r.errors.push({ field: 'cutThreshold', message: 'Debe ser mayor que 0 y menor que 1' });
+    r.finish();
+    return ok(presentPerShare(await portfolio.dividendsPerShare(user.id, { cutThreshold })));
+  }));
+  router.add('GET', `${API}/dividends/year-over-year`, authed(async (req, user) => {
+    const r = Reader.query(req.query);
+    const query = {
+      reportingCurrency: r.currency('reportingCurrency', { optional: true }),
+      currency: r.currency('currency', { optional: true }),
+      years: r.string('years', { optional: true, pattern: /^\d{4}(,\d{4}){0,5}$/ })?.split(',').map(Number),
+    };
+    r.finish();
+    return ok(presentYearOverYear(await portfolio.dividendsYearOverYear(user.id, query)));
   }));
   router.add('GET', `${API}/dividends/calendar`, authed(async (req, user) => {
     const r = Reader.query(req.query);

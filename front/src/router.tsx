@@ -19,6 +19,13 @@ export function usePath(): string {
   return useSyncExternalStore(subscribe, getPath);
 }
 
+const getSearch = () => window.location.search;
+
+/** Query string actual ("?alertas=1" o ""): estado de pantalla que se puede enlazar. */
+export function useSearch(): URLSearchParams {
+  return new URLSearchParams(useSyncExternalStore(subscribe, getSearch));
+}
+
 export function navigate(to: string, options: { replace?: boolean } = {}) {
   if (options.replace) window.history.replaceState(null, '', to);
   else window.history.pushState(null, '', to);

@@ -259,9 +259,9 @@ describe('v0.5 — fechas de negocio del precio', () => {
 
 describe('v0.5 — P2 meta de ingreso pasivo', () => {
   test('preferencias: por defecto sin meta; PATCH la define y null la elimina', async () => {
-    assert.deepEqual(await expectStatus(await ana.get('/me/preferences'), 200), { reportingCurrency: 'USD', monthlyIncomeGoal: null });
+    assert.deepEqual(await expectStatus(await ana.get('/me/preferences'), 200), { reportingCurrency: 'USD', monthlyIncomeGoal: null, dividendCutThreshold: '0.1' });
     const set = await expectStatus(await ana.patch('/me/preferences', { monthlyIncomeGoal: { amount: '1000', currency: 'USD' } }), 200);
-    assert.deepEqual(set, { reportingCurrency: 'USD', monthlyIncomeGoal: { amount: '1000', currency: 'USD' } });
+    assert.deepEqual(set, { reportingCurrency: 'USD', monthlyIncomeGoal: { amount: '1000', currency: 'USD' }, dividendCutThreshold: '0.1' });
     const both = await expectStatus(await ana.patch('/me/preferences', { reportingCurrency: 'CLP' }), 200);
     assert.deepEqual(both.monthlyIncomeGoal, { amount: '1000', currency: 'USD' }, 'cambiar la moneda de reporte no toca la meta');
     assert.equal((await expectStatus(await ana.patch('/me/preferences', { monthlyIncomeGoal: null }), 200)).monthlyIncomeGoal, null);
@@ -413,17 +413,26 @@ describe('v0.5 — P1 proyección bola de nieve', () => {
     const ib = (await expectStatus(await ana.get('/accounts'), 200)).items.find((a: { name: string }) => a.name === 'IB');
     await expectStatus(await ana.post('/cash-movements', { accountId: ib.id, date: monthShift(-1), type: 'DEPOSIT', amount: '1200', currency: 'USD' }), 201);
     const { UNASSIGNED_IMPORT_DEPOSIT_DESCRIPTION } = await import('../../src/domain/cash-movement.ts');
+    const userId = (await h.container.dataSource.query(`SELECT id FROM users WHERE email = 'ana@example.com'`))[0].id;
     await h.container.useCases.cash.create(
-      (await h.container.dataSource.query(`SELECT id FROM users WHERE email = 'ana@example.com'`))[0].id,
+      userId,
       { accountId: ib.id, date: monthShift(-1), type: 'DEPOSIT', amount: d('5000'), currency: 'USD', description: UNASSIGNED_IMPORT_DEPOSIT_DESCRIPTION },
       'IMPORT',
+      'UNASSIGNED_DEPOSIT',
+    );
+    // v0.6: se reconoce por importRole, no por el texto: un aporte inferido (IMPORT) sí cuenta como aporte.
+    await h.container.useCases.cash.create(
+      userId,
+      { accountId: ib.id, date: monthShift(-1), type: 'DEPOSIT', amount: d('1200'), currency: 'USD', description: 'Texto cualquiera' },
+      'IMPORT',
+      'INFERRED_CONTRIBUTION',
     );
     const { body: p, ms } = await timed('/projections/snowball?reportingCurrency=CLP');
     assert.ok(ms < 300, `tardó ${ms} ms`);
-    // 1200 USD × 980 / 12 = 98000 CLP al mes; el depósito "no asignado" no cuenta.
+    // (1200 + 1200) USD × 980 / 12 = 196000 CLP al mes; el depósito "no asignado" (importRole) no cuenta.
     assert.deepEqual(p.assumptions, {
       years: 20,
-      monthlyContribution: '98000',
+      monthlyContribution: '196000',
       contributionGrowth: '0',
       reinvestDividends: true,
       dividendGrowth: '0.05',
@@ -434,7 +443,11 @@ describe('v0.5 — P1 proyección bola de nieve', () => {
     assert.equal(p.start.annualDividendsNet, '41893.88');
     const currentYear = Number(monthShift(0).slice(0, 4));
     assert.equal(p.years[0].calendarYear, currentYear + 1);
-    assert.equal(p.years[19].contributedCumulative, String(98000 * 240));
+    assert.equal(p.years[19].contributedCumulative, String(196000 * 240));
+    const movements = (await expectStatus(await ana.get('/cash-movements?type=DEPOSIT'), 200)).items;
+    assert.deepEqual(movements.map((m: { source: string; importRole: string | null }) => [m.source, m.importRole]).sort(), [
+      ['IMPORT', 'INFERRED_CONTRIBUTION'], ['IMPORT', 'UNASSIGNED_DEPOSIT'], ['MANUAL', null], ['MANUAL', null], ['MANUAL', null],
+    ].sort());
     assert.equal(p.goalReachedYear, null);
     assert.equal(p.years[0].goalCoverage, null);
   });
@@ -454,6 +467,101 @@ describe('v0.5 — P1 proyección bola de nieve', () => {
   test('validación', async () => {
     for (const q of ['years=0', 'years=51', 'monthlyContribution=-1', 'priceGrowth=0.6', 'dividendGrowth=-0.51', 'contributionGrowth=1', 'reinvestDividends=si', 'monthlyContribution=1e3']) {
       await expectStatus(await ana.get(`/projections/snowball?${q}`), 400);
+    }
+  });
+});
+
+describe('v0.6 — preferencia de umbral de recorte', () => {
+  test('default 0.1; PATCH 0 < x < 1; fuera de rango → 400', async () => {
+    assert.equal((await expectStatus(await ana.patch('/me/preferences', { dividendCutThreshold: '0.25' }), 200)).dividendCutThreshold, '0.25');
+    for (const dividendCutThreshold of ['0', '1', '-0.1', '1.5', 0.2]) {
+      assert.equal((await expectStatus(await ana.patch('/me/preferences', { dividendCutThreshold }), 400)).errors[0].field, 'dividendCutThreshold');
+    }
+  });
+});
+
+describe('v0.6 — dividendo por acción y alertas', () => {
+  // JNJ: 10 acciones hace 30 meses; TTM anterior 4 pagos de 1 por acción; TTM 1, 1, 1 y 0,85 (−3,75 % TTM, −15 % último regular).
+  // KO y PEHUENCHE (del caso a mano) cobraron hace más de 12 meses y nada en los últimos 12 → SUSPENDED.
+  let jnj: { id: string };
+  beforeEach(async () => {
+    const ib = (await expectStatus(await ana.get('/accounts'), 200)).items.find((a: { name: string }) => a.name === 'IB');
+    jnj = await expectStatus(await ana.post('/instruments', { symbol: 'JNJ', marketCode: 'US', name: 'Johnson & Johnson', type: 'STOCK' }), 201);
+    await expectStatus(await ana.post('/trades', { accountId: ib.id, instrumentId: jnj.id, side: 'BUY', tradeDate: monthShift(-30), quantity: '10', price: '150' }), 201);
+    for (const [k, gross] of [[-23, '10'], [-20, '10'], [-17, '10'], [-14, '10'], [-11, '10'], [-8, '10'], [-5, '10'], [-2, '8.5']] as const) {
+      await expectStatus(await ana.post('/dividends', { accountId: ib.id, instrumentId: jnj.id, status: 'PAID', kind: 'REGULAR', paymentDate: monthShift(k), grossAmount: gross }), 201);
+    }
+  });
+
+  test('filas por instrumento abierto en su moneda, con estado y orden del contrato; responde rápido', async () => {
+    const { body: r, ms } = await timed('/dividends/per-share');
+    assert.ok(ms < 300, `tardó ${ms} ms`);
+    assert.equal(r.cutThreshold, '0.1');
+    assert.deepEqual(r.items.map((i: Record<string, string>) => [i.symbol, i.currency, i.status, i.cutReason, i.dataQuality]), [
+      ['KO', 'USD', 'SUSPENDED', null, 'DERIVED'],
+      ['PEHUENCHE', 'CLP', 'SUSPENDED', null, 'DERIVED'],
+      ['JNJ', 'USD', 'CUT', 'LAST_REGULAR', 'DERIVED'],
+    ]);
+    const j = r.items.find((i: { symbol: string }) => i.symbol === 'JNJ');
+    assert.deepEqual([j.ttmPerShare, j.previousTtmPerShare, j.ttmGrowth], ['3.85', '4', '-0.0375']);
+    // Sin operaciones en los 45 días previos a cada pago: DPA derivado pero confiable.
+    assert.deepEqual([j.lastRegular, j.previousRegular], [{ paymentDate: monthShift(-2), perShare: '0.85', estimated: false }, { paymentDate: monthShift(-5), perShare: '1', estimated: false }]);
+    // KO: 10 USD brutos sobre 9 acciones al 1-abr-2025 → DPA derivado 1.1111111111; 2025 parcial (compra en enero).
+    const k = r.items.find((i: { symbol: string }) => i.symbol === 'KO');
+    assert.deepEqual(k.years[0], { year: 2025, perShare: '1.1111111111', growth: null, partial: true });
+  });
+
+  test('umbral por query y por preferencia; conteos del resumen', async () => {
+    const q = await expectStatus(await ana.get('/dividends/per-share?cutThreshold=0.2'), 200);
+    assert.equal(q.items.find((i: { symbol: string }) => i.symbol === 'JNJ').status, 'DOWN');
+    assert.deepEqual((await expectStatus(await ana.get('/portfolio/summary'), 200)).dividendAlerts, { cut: 1, suspended: 2, down: 0 });
+    await expectStatus(await ana.patch('/me/preferences', { dividendCutThreshold: '0.2' }), 200);
+    assert.equal((await expectStatus(await ana.get('/dividends/per-share'), 200)).cutThreshold, '0.2');
+    assert.deepEqual((await expectStatus(await ana.get('/portfolio/summary'), 200)).dividendAlerts, { cut: 0, suspended: 2, down: 1 });
+    for (const t of ['0', '1', 'x']) await expectStatus(await ana.get(`/dividends/per-share?cutThreshold=${t}`), 400);
+  });
+});
+
+describe('v0.6 — dividendos año contra año', () => {
+  test('default: los 3 últimos años con datos (pueden ser menos de 3); moneda de reporte con conversión', async () => {
+    const { body: r, ms } = await timed('/dividends/year-over-year?reportingCurrency=CLP');
+    assert.ok(ms < 300, `tardó ${ms} ms`);
+    // Sólo hay dividendos en 2025: un único bloque, sin años vacíos.
+    assert.deepEqual([r.amountCurrency, r.converted, r.availableYears, r.years.map((y: { year: number }) => y.year)], ['CLP', true, [2025], [2025]]);
+    const y2025 = r.years.find((y: { year: number }) => y.year === 2025);
+    // abril: 8.5 USD × 950; mayo: 5000 CLP
+    assert.deepEqual([y2025.months[3].paidNet, y2025.months[4].paidNet, y2025.totalPaidNet], ['8075', '5000', '13075']);
+    assert.equal(y2025.months.length, 12);
+  });
+
+  test('currency filtra y no convierte; meses futuros del año en curso con ytd null', async () => {
+    const year = Number(monthShift(0).slice(0, 4));
+    const r = await expectStatus(await ana.get(`/dividends/year-over-year?years=2025,${year}&currency=USD`), 200);
+    assert.deepEqual([r.amountCurrency, r.converted], ['USD', false]);
+    const y2025 = r.years.find((y: { year: number }) => y.year === 2025);
+    assert.deepEqual([y2025.months[3].paidNet, y2025.months[4].paidNet, y2025.totalPaidNet], ['8.5', '0', '8.5']);
+    const current = r.years.find((y: { year: number }) => y.year === year);
+    const month = Number(monthShift(0).slice(5, 7));
+    if (month < 12) assert.equal(current.months[month].ytdPaidNet, null);
+    assert.notEqual(current.months[month - 1].ytdPaidNet, null);
+  });
+
+  test('default con más de 3 años con datos: los 3 últimos; años explícitos se respetan aunque estén en 0', async () => {
+    // Dividendos históricos de KO (antes de la posición): directo en BD, la API exigiría posición o cuenta vigente.
+    await h.container.dataSource.query(
+      `INSERT INTO dividends (user_id, account_id, instrument_id, status, kind, payment_date, currency, gross_amount, withholding_rate, withholding_amount, net_amount)
+       SELECT user_id, account_id, instrument_id, 'PAID', 'REGULAR', d::date, currency, 1, 0, 0, 1
+       FROM dividends, unnest(ARRAY['2021-03-01', '2022-03-01', '2023-03-01']) AS d WHERE payment_date = '2025-04-01'`,
+    );
+    const def = await expectStatus(await ana.get('/dividends/year-over-year?currency=USD'), 200);
+    assert.deepEqual([def.availableYears, def.years.map((y: { year: number }) => y.year)], [[2021, 2022, 2023, 2025], [2022, 2023, 2025]]);
+    const explicit = await expectStatus(await ana.get('/dividends/year-over-year?currency=USD&years=2024,2025'), 200);
+    assert.deepEqual(explicit.years.map((y: { year: number; totalPaidNet: string }) => [y.year, y.totalPaidNet]), [[2024, '0'], [2025, '8.5']]);
+  });
+
+  test('validación: years mal formado o más de 6 → 400', async () => {
+    for (const q of ['years=2025,', 'years=25', 'years=2020,2021,2022,2023,2024,2025,2026', 'currency=CLF', 'reportingCurrency=ARS']) {
+      await expectStatus(await ana.get(`/dividends/year-over-year?${q}`), 400);
     }
   });
 });

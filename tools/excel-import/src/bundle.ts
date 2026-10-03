@@ -46,6 +46,8 @@ export type BundleCashMovement = {
   amount: string;
   currency: 'CLP' | 'USD' | 'EUR';
   description: string;
+  /** (v0.6) Marca del movimiento; la plataforma la usa en vez del texto de la descripción. */
+  importRole: 'INFERRED_CONTRIBUTION' | 'UNASSIGNED_DEPOSIT' | 'RESIDUAL_ADJUSTMENT';
 };
 
 export type ImportBundle = {

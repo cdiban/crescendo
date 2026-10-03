@@ -156,6 +156,7 @@ describe('resumen del portafolio', () => {
       pricesAsOf: null,
       pricesDate: null,
       incomeGoal: null,
+      dividendAlerts: { cut: 0, suspended: 0, down: 0 },
       dividends: { netYearToDate: '13075', netLast12Months: '13075', netTotal: '13075', expectedAnnualGross: '44592.8', currentYield: null, expectedAnnualNet: '41893.88' },
       exposure: [
         { currency: 'USD', amount: '2061430', weight: '0.909549' },

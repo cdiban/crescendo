@@ -10,6 +10,8 @@ import type { DividendView } from '../../application/use-cases/dividends.ts';
 import type {
   DividendSummary,
   DividendsMonthly,
+  DividendsPerShare,
+  DividendsYearOverYear,
   DividendCalendar,
   Allocation,
   SnowballProjection,
@@ -116,6 +118,7 @@ export const presentCashMovement = (m: CashMovement) => ({
   currency: m.currency,
   description: m.description,
   source: m.source,
+  importRole: m.importRole,
   tradeId: m.tradeId,
   dividendId: m.dividendId,
   transferId: m.transferId,
@@ -212,6 +215,7 @@ export const presentPortfolioSummary = (p: PortfolioSummary) => ({
   pricedCoverage: s(p.pricedCoverage),
   pricesAsOf: p.pricesAsOf?.toISOString() ?? null,
   pricesDate: p.pricesDate,
+  dividendAlerts: p.dividendAlerts,
   incomeGoal: p.incomeGoal
     ? {
         goal: { amount: s(p.incomeGoal.goal.amount), currency: p.incomeGoal.goal.currency },
@@ -278,6 +282,7 @@ export const presentHistoryPoint = (p: HistoryPoint) => ({
 export const presentPreferences = (p: PreferencesView) => ({
   reportingCurrency: p.reportingCurrency,
   monthlyIncomeGoal: p.monthlyIncomeGoal ? { amount: s(p.monthlyIncomeGoal.amount), currency: p.monthlyIncomeGoal.currency } : null,
+  dividendCutThreshold: s(p.dividendCutThreshold),
 });
 
 export const presentDividendsMonthly = (m: DividendsMonthly) => ({
@@ -350,4 +355,48 @@ export const presentSnowball = (p: SnowballProjection) => ({
     goalCoverage: sn(y.goalCoverage),
   })),
   goalReachedYear: p.goalReachedYear,
+});
+
+const payment = (p: { paymentDate: string; perShare: Decimal; estimated: boolean } | null) =>
+  p ? { paymentDate: p.paymentDate, perShare: s(p.perShare), estimated: p.estimated } : null;
+
+export const presentPerShare = (x: DividendsPerShare) => ({
+  asOf: x.asOf,
+  cutThreshold: s(x.cutThreshold),
+  items: x.items.map((r) => ({
+    instrumentId: r.instrumentId,
+    symbol: r.symbol,
+    name: r.name,
+    currency: r.currency,
+    firstTradeDate: r.firstTradeDate,
+    years: r.years.map((y) => ({ year: y.year, perShare: s(y.perShare), growth: sn(y.growth), partial: y.partial })),
+    ttmPerShare: s(r.ttmPerShare),
+    previousTtmPerShare: s(r.previousTtmPerShare),
+    ttmGrowth: sn(r.ttmGrowth),
+    cagr: sn(r.cagr),
+    lastRegular: payment(r.lastRegular),
+    previousRegular: payment(r.previousRegular),
+    status: r.status,
+    cutReason: r.cutReason,
+    dataQuality: r.dataQuality,
+  })),
+});
+
+export const presentYearOverYear = (x: DividendsYearOverYear) => ({
+  amountCurrency: x.amountCurrency,
+  converted: x.converted,
+  availableYears: x.availableYears,
+  years: x.years.map((y) => ({
+    year: y.year,
+    totalPaidNet: s(y.totalPaidNet),
+    totalAnnouncedNet: s(y.totalAnnouncedNet),
+    growth: sn(y.growth),
+    months: y.months.map((m) => ({
+      month: m.month,
+      paidNet: s(m.paidNet),
+      announcedNet: s(m.announcedNet),
+      ytdPaidNet: sn(m.ytdPaidNet),
+      growthVsPreviousYear: sn(m.growthVsPreviousYear),
+    })),
+  })),
 });

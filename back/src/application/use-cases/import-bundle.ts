@@ -1,3 +1,4 @@
+import { IMPORT_DESCRIPTIONS, type ImportRole } from '../../domain/cash-movement.ts';
 import type { Currency } from '../../domain/currency.ts';
 import type { Decimal } from '../../domain/decimal.ts';
 import type { DividendKind, DividendStatus } from '../../domain/dividend.ts';
@@ -58,8 +59,16 @@ export type BundleData = {
     amount: Decimal;
     currency: Currency;
     description: string | null;
+    /** null en bundles anteriores a v0.6: se deduce de la descripción. */
+    importRole: ImportRole | null;
   }>;
 };
+
+/** Compatibilidad con bundles sin importRole: la descripción que escribía la importación. */
+function roleFromDescription(description: string | null): ImportRole | null {
+  const match = (Object.entries(IMPORT_DESCRIPTIONS) as Array<[ImportRole, string]>).find(([, text]) => text === description);
+  return match?.[0] ?? null;
+}
 
 export type ImportSummary = { accounts: number; instrumentsCreated: number; instrumentsReused: number; trades: number; dividends: number; cashMovements: number };
 
@@ -156,6 +165,7 @@ export class ImportBundle {
           user.id,
           { accountId: accountId(m.accountKey, `cashMovements[${n}]`), date: m.date, type: m.type, amount: m.amount, currency: m.currency, description: m.description },
           'IMPORT',
+          m.importRole ?? roleFromDescription(m.description),
         );
       }
 

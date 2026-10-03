@@ -227,3 +227,25 @@ describe('cliente API — Fase 4', () => {
     ]);
   });
 });
+
+describe('cliente API — Fase 5', () => {
+  it('pide DPA y año contra año con sus parámetros', async () => {
+    const fetchMock = mockFetch([
+      { method: 'GET', path: '/api/v1/dividends/per-share', status: 200, body: { asOf: '2026-10-04', cutThreshold: '0.10', items: [] } },
+      { method: 'GET', path: '/api/v1/dividends/year-over-year', status: 200, body: { amountCurrency: 'USD', converted: true, availableYears: [], years: [] } },
+    ]);
+    const api = createApi();
+
+    await api.getDividendsPerShare();
+    await api.getDividendsPerShare({ cutThreshold: '0.2' });
+    await api.getDividendsYearOverYear({ reportingCurrency: 'USD' });
+    await api.getDividendsYearOverYear({ reportingCurrency: 'USD', currency: 'CLP', years: '2024,2025,2026' });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/v1/dividends/per-share',
+      '/api/v1/dividends/per-share?cutThreshold=0.2',
+      '/api/v1/dividends/year-over-year?reportingCurrency=USD',
+      '/api/v1/dividends/year-over-year?reportingCurrency=USD&currency=CLP&years=2024%2C2025%2C2026',
+    ]);
+  });
+});

@@ -197,3 +197,27 @@ describe('CashScreen', () => {
     expect(text(await screen.findByRole('status'))).toMatch(/Conversión registrada.*1 CLP = 0,0010638298 USD/);
   });
 });
+
+describe('CashScreen — marca de la importación (importRole)', () => {
+  it('distingue aporte inferido, depósito no asignado y ajuste de importación, con una explicación', async () => {
+    const rows = [
+      movement({ id: 'r1', source: 'IMPORT', importRole: 'INFERRED_CONTRIBUTION', description: 'Aporte inferido (importación)' }),
+      movement({ id: 'r2', source: 'IMPORT', importRole: 'UNASSIGNED_DEPOSIT', description: 'texto cambiado por el usuario' }),
+      movement({ id: 'r3', source: 'IMPORT', importRole: 'RESIDUAL_ADJUSTMENT', type: 'ADJUSTMENT', amount: '-10' }),
+      movement({ id: 'r4', source: 'MANUAL', importRole: null }),
+    ];
+    mockFetch([
+      { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+      { method: 'GET', path: '/api/v1/cash-movements', status: 200, body: page(rows) },
+      { method: 'GET', path: '/api/v1/cash-balances', status: 200, body: { items: [] } },
+    ]);
+    render(<CashScreen api={createApi()} />);
+
+    const badges = await screen.findAllByTestId('import-role');
+    expect(badges.map((b) => [text(b), b.getAttribute('title')])).toEqual([
+      ['Aporte inferido', expect.stringMatching(/depósito inferido.*caja no quede negativa/)],
+      ['No asignado', expect.stringMatching(/no se gastó.*no cuenta como aporte del período/)],
+      ['Ajuste de importación', expect.stringMatching(/ajuste.*al corte/)],
+    ]);
+  });
+});

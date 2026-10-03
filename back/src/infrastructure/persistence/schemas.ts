@@ -11,6 +11,7 @@ export type UserRecord = {
   reportingCurrency: string;
   monthlyIncomeGoalAmount: string | null;
   monthlyIncomeGoalCurrency: string | null;
+  dividendCutThreshold: string;
 };
 
 export type SessionRecord = {
@@ -31,6 +32,7 @@ export const UserSchema = new EntitySchema<UserRecord>({
     reportingCurrency: { type: 'char', length: 3, name: 'reporting_currency' },
     monthlyIncomeGoalAmount: { type: 'numeric', precision: 20, scale: 4, nullable: true, name: 'monthly_income_goal_amount' },
     monthlyIncomeGoalCurrency: { type: 'char', length: 3, nullable: true, name: 'monthly_income_goal_currency' },
+    dividendCutThreshold: { type: 'numeric', precision: 7, scale: 6, name: 'dividend_cut_threshold' },
   },
 });
 
@@ -220,6 +222,7 @@ export type CashMovementRecord = {
   currency: string;
   description: string | null;
   source: string;
+  importRole: string | null;
   tradeId: string | null;
   dividendId: string | null;
   transferId: string | null;
@@ -239,6 +242,7 @@ export const CashMovementSchema = new EntitySchema<CashMovementRecord>({
     currency: { type: 'text' },
     description: { type: 'text', nullable: true },
     source: { type: 'text' },
+    importRole: { type: 'text', nullable: true, name: 'import_role' },
     tradeId: { type: 'uuid', nullable: true, name: 'trade_id' },
     dividendId: { type: 'uuid', nullable: true, name: 'dividend_id' },
     transferId: { type: 'uuid', nullable: true, name: 'transfer_id' },

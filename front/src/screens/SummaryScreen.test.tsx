@@ -269,3 +269,28 @@ describe('SummaryScreen — dashboard', () => {
     expect(within(table).getByText('+41,23%').dataset.tone).toBe('positive');
   });
 });
+
+describe('SummaryScreen — alertas de dividendos (P4)', () => {
+  it('muestra los conteos de recorte, suspendido y baja leve y enlaza a Análisis con "Solo alertas"', async () => {
+    mockFetch(routes(portfolioSummary({ dividendAlerts: { cut: 2, suspended: 1, down: 3 } })));
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+
+    const alerts = await screen.findByRole('region', { name: 'Alertas de dividendos' });
+    const counts = within(alerts).getAllByRole('definition').map(text);
+    expect(within(alerts).getAllByRole('term').map(text)).toEqual(['Recorte', 'Suspendido', 'Baja leve']);
+    expect(counts).toEqual(['2', '1', '3']);
+    expect(within(alerts).getByText('2').dataset.tone).toBe('negative');
+    expect(within(alerts).getByText('3').dataset.tone).toBe('warning');
+    expect(within(alerts).getByRole('link', { name: 'Ver alertas en Análisis' }).getAttribute('href')).toBe('/analisis?alertas=1');
+  });
+
+  it('sin alertas dice "Sin recortes ni suspensiones"', async () => {
+    mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+
+    const alerts = await screen.findByRole('region', { name: 'Alertas de dividendos' });
+    expect(text(alerts)).toMatch(/Sin recortes ni suspensiones/);
+    expect(within(alerts).queryByRole('term')).toBeNull();
+    expect(within(alerts).getByRole('link', { name: 'Ver dividendo por acción' }).getAttribute('href')).toBe('/analisis');
+  });
+});

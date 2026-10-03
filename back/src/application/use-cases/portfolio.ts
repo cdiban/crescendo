@@ -9,7 +9,8 @@ import { computeHoldings, type Holding } from '../../domain/positions.ts';
 import { cashFxEffect, exposureWeights, WEIGHT_SCALE, type Exposure } from '../../domain/reporting.ts';
 import { isIntradayPrice, type PriceSource } from '../../domain/market-data.ts';
 import { effectiveWithholdingRate } from '../../domain/instrument.ts';
-import { dividendsByMonth, type MonthPoint, type YearTotal } from '../../domain/dividend-stats.ts';
+import { dividendsByMonth, dividendsYearOverYear, type MonthPoint, type YearTotal, type YoyYear } from '../../domain/dividend-stats.ts';
+import { dividendHealth, perSharePayments, sortHealthRows, type DividendHealth } from '../../domain/dividend-per-share.ts';
 import { buildCalendar, estimateNextDividend, type CalendarItem, type CalendarMonth } from '../../domain/dividend-calendar.ts';
 import { allocate, type AllocationItem, type AllocationRow } from '../../domain/allocation.ts';
 import { simulateSnowball, type SnowballYear } from '../../domain/snowball.ts';
@@ -137,10 +138,14 @@ export type PortfolioSummary = {
   pricedCoverage: Decimal;
   pricesAsOf: Date | null;
   pricesDate: string | null;
+  dividendAlerts: { cut: number; suspended: number; down: number };
   incomeGoal: { goal: Money; monthlyGoalReporting: Decimal; coverageLast12Months: Decimal; coverageExpected: Decimal } | null;
 };
 
 export type DividendsMonthly = { reportingCurrency: Currency; months: MonthPoint[]; years: YearTotal[] };
+export type DividendPerShareRow = DividendHealth & { instrumentId: string; symbol: string; name: string; currency: Currency; firstTradeDate: string };
+export type DividendsPerShare = { asOf: string; cutThreshold: Decimal; items: DividendPerShareRow[] };
+export type DividendsYearOverYear = { amountCurrency: Currency; converted: boolean; availableYears: number[]; years: YoyYear[] };
 export type DividendCalendar = { reportingCurrency: Currency; months: CalendarMonth[]; totalNet: Decimal };
 export type AllocationDimension = 'instrument' | 'sector' | 'market' | 'currency' | 'account' | 'type';
 export type Allocation = { by: AllocationDimension; reportingCurrency: Currency; total: Decimal; items: AllocationItem[] };
@@ -480,6 +485,7 @@ export class Portfolio {
         pricedCoverage: coverage(Decimal.sum(priced.map((p) => p.reporting.costBasis)), positions.costBasis),
         pricesAsOf,
         pricesDate: oldest?.priceDate ?? null,
+        dividendAlerts: this.#alerts(await this.#perShareRows(r, userId, user.dividendCutThreshold, asOf)),
         incomeGoal: this.#incomeGoal(user.monthlyIncomeGoal, rep, netAt(dividends.filter((d) => d.paymentDate > windowStart)), expectedAnnualNet),
         contributedCapital: contributed,
         costBasis: positions.costBasis,
@@ -624,6 +630,88 @@ export class Portfolio {
       start: { netWorth: summary.netWorth, annualDividendsNet: summary.dividends.expectedAnnualNet },
       ...result,
     };
+  }
+
+  /**
+   * P4: dividendo por acción por instrumento abierto (agregado entre cuentas), en la moneda del
+   * instrumento, con crecimiento y estado de recorte. Umbral: el pedido o el de las preferencias.
+   */
+  dividendsPerShare(userId: string, query: { cutThreshold?: Decimal | undefined }): Promise<DividendsPerShare> {
+    const today = this.#clock.today();
+    return this.#uow.read(async (r) => {
+      const user = await r.users.findById(userId);
+      if (!user) throw new NotFoundError('El usuario');
+      const cutThreshold = query.cutThreshold ?? user.dividendCutThreshold;
+      return { asOf: today, cutThreshold, items: await this.#perShareRows(r, userId, cutThreshold, today) };
+    });
+  }
+
+  async #perShareRows(r: Repositories, userId: string, threshold: Decimal, today: string): Promise<DividendPerShareRow[]> {
+    const [trades, dividends] = await Promise.all([
+      r.trades.listByUser(userId),
+      r.dividends.listByUser(userId, { status: 'PAID', to: today }),
+    ]);
+    const quantity = new Map<string, Decimal>();
+    for (const h of computeHoldings(trades, today)) quantity.set(h.instrumentId, (quantity.get(h.instrumentId) ?? Decimal.ZERO).add(h.quantity));
+    const open = [...quantity.entries()].filter(([, q]) => q.isPositive()).map(([id]) => id);
+    const instruments = new Map((await r.instruments.findByIds(open)).map((i) => [i.id, i]));
+
+    const rows = open.map((instrumentId) => {
+      const instrument = instruments.get(instrumentId)!;
+      const own = trades.filter((t) => t.instrumentId === instrumentId);
+      const firstTradeDate = own.reduce((min, t) => (t.tradeDate < min ? t.tradeDate : min), own[0]!.tradeDate);
+      // Cantidad total entre cuentas a una fecha (quantityAt suma todas las operaciones del instrumento).
+      const { payments, excluded } = perSharePayments(
+        dividends.filter((d) => d.instrumentId === instrumentId),
+        (date) => quantityAt(own, date),
+        own.map((t) => t.tradeDate),
+      );
+      return {
+        instrumentId,
+        symbol: instrument.symbol,
+        name: instrument.name,
+        currency: instrument.currency,
+        firstTradeDate,
+        ...dividendHealth({ payments, excluded, firstTradeDate, today, threshold }),
+      };
+    });
+    return sortHealthRows(rows);
+  }
+
+  #alerts(rows: DividendPerShareRow[]): PortfolioSummary['dividendAlerts'] {
+    const count = (status: DividendPerShareRow['status']) => rows.filter((row) => row.status === status).length;
+    return { cut: count('CUT'), suspended: count('SUSPENDED'), down: count('DOWN') };
+  }
+
+  /**
+   * Dividendos netos por mes, un bloque por año. Sin `currency`, en moneda de reporte (cada uno a TC
+   * de su fecha de pago); con `currency`, sólo los de esa moneda y sin convertir (aísla el efecto cambiario).
+   */
+  dividendsYearOverYear(
+    userId: string,
+    query: { years?: number[] | undefined; currency?: Currency | undefined; reportingCurrency?: Currency | undefined },
+  ): Promise<DividendsYearOverYear> {
+    const today = this.#clock.today();
+    return this.#uow.read(async (r) => {
+      const all = await r.dividends.listByUser(userId, {});
+      const selected = query.currency ? all.filter((d) => d.currency === query.currency) : all;
+      // Default: los 3 últimos años con algún dividendo de la selección (puede ser menos de 3, sin años vacíos).
+      const withData = [...new Set(selected.map((d) => Number(d.paymentDate.slice(0, 4))))].sort((a, b) => a - b);
+      const years = query.years ?? withData.slice(-3);
+      if (query.currency) {
+        const reported = selected.map((d) => ({ paymentDate: d.paymentDate, status: d.status, net: d.netAmount, gross: d.grossAmount, withholding: d.withholdingAmount }));
+        return { amountCurrency: query.currency, converted: false, ...dividendsYearOverYear({ dividends: reported, years, today }) };
+      }
+      const rep = await this.#reporter(r, userId, query.reportingCurrency, today);
+      const reported = all.map((d) => ({
+        paymentDate: d.paymentDate,
+        status: d.status,
+        net: rep.atDate(d.netAmount, d.currency, d.paymentDate),
+        gross: rep.atDate(d.grossAmount, d.currency, d.paymentDate),
+        withholding: rep.atDate(d.withholdingAmount, d.currency, d.paymentDate),
+      }));
+      return { amountCurrency: rep.currency, converted: true, ...dividendsYearOverYear({ dividends: reported, years, today }) };
+    });
   }
 
   /** P2: meta convertida a TC actual y cobertura (12 meses cobrados y esperada). */

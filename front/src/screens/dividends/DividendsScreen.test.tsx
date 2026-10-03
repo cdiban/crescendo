@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { DividendsScreen } from './DividendsScreen.tsx';
 import { createApi } from '../../api/client.ts';
 import { calls, mockFetch, problem, sentBody } from '../../test/http.ts';
-import { KO, accounts, dividend, instruments, page, positionsByAccount, summary2026 } from '../../test/fixtures.ts';
+import { KO, accounts, dividend, instruments, page, positionsByAccount, summary2026, yearOverYear } from '../../test/fixtures.ts';
 
 const nbsp = (s: string | null) => (s ?? '').replace(/ /g, ' ');
 const announced = dividend();
@@ -198,5 +198,20 @@ describe('DividendsScreen', () => {
     mockFetch([...baseRoutes().slice(0, 3), { method: 'GET', path: '/api/v1/dividends', ...problem(500, 'INTERNAL_ERROR') }, baseRoutes()[4]!]);
     render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     expect((await screen.findByRole('alert')).textContent).toMatch(/inesperado/);
+  });
+});
+
+describe('DividendsScreen — año contra año', () => {
+  it('la pestaña "Año contra año" carga el gráfico solo al abrirla', async () => {
+    const fetchMock = mockFetch([...baseRoutes(), { method: 'GET', path: '/api/v1/dividends/year-over-year', status: 200, body: yearOverYear() }]);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
+    await screen.findByRole('region', { name: 'Dividendos registrados' });
+    expect(calls(fetchMock).some((c) => c.includes('year-over-year'))).toBe(false);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Año contra año' }));
+
+    expect(await screen.findByRole('figure', { name: 'Dividendos año contra año' })).toBeTruthy();
+    await screen.findByRole('group', { name: 'Años' });
+    expect(calls(fetchMock)).toContain('GET /api/v1/dividends/year-over-year?reportingCurrency=USD');
   });
 });

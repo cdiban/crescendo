@@ -4,7 +4,7 @@ import { Decimal } from '../../domain/decimal.ts';
 import { Email } from '../../domain/email.ts';
 import type { NewUser, User } from '../../domain/user.ts';
 import { EmailAlreadyRegisteredError } from '../../application/errors.ts';
-import type { UserRepository } from '../../application/ports/user-repository.ts';
+import type { PreferenceChanges, UserRepository } from '../../application/ports/user-repository.ts';
 import { isUniqueViolation } from './errors.ts';
 import { UserSchema, type UserRecord } from './schemas.ts';
 
@@ -20,6 +20,7 @@ function toDomain(record: UserRecord): User {
       record.monthlyIncomeGoalAmount === null
         ? null
         : { amount: Decimal.parse(record.monthlyIncomeGoalAmount), currency: record.monthlyIncomeGoalCurrency!.trim() as Currency },
+    dividendCutThreshold: Decimal.parse(record.dividendCutThreshold),
   };
 }
 
@@ -50,6 +51,7 @@ export class TypeOrmUserRepository implements UserRepository {
           reportingCurrency: user.reportingCurrency,
           monthlyIncomeGoalAmount: user.monthlyIncomeGoal?.amount.toString() ?? null,
           monthlyIncomeGoalCurrency: user.monthlyIncomeGoal?.currency ?? null,
+          dividendCutThreshold: user.dividendCutThreshold.toString(),
         }),
       );
       return toDomain(record);
@@ -59,13 +61,14 @@ export class TypeOrmUserRepository implements UserRepository {
     }
   }
 
-  async updatePreferences(id: string, changes: { reportingCurrency?: Currency | undefined; monthlyIncomeGoal?: Money | null | undefined }): Promise<void> {
+  async updatePreferences(id: string, changes: PreferenceChanges): Promise<void> {
     const fields: Partial<UserRecord> = {};
     if (changes.reportingCurrency) fields.reportingCurrency = changes.reportingCurrency;
     if (changes.monthlyIncomeGoal !== undefined) {
       fields.monthlyIncomeGoalAmount = changes.monthlyIncomeGoal?.amount.toString() ?? null;
       fields.monthlyIncomeGoalCurrency = changes.monthlyIncomeGoal?.currency ?? null;
     }
+    if (changes.dividendCutThreshold) fields.dividendCutThreshold = changes.dividendCutThreshold.toString();
     if (Object.keys(fields).length > 0) await this.#repo.update({ id }, fields);
   }
 }

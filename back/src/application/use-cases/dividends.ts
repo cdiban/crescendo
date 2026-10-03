@@ -109,6 +109,7 @@ async function syncMovement(r: Repositories, dividend: Dividend, symbol: string)
       userId: dividend.userId,
       type: 'DIVIDEND',
       source: 'AUTOMATIC',
+      importRole: null,
       tradeId: null,
       dividendId: dividend.id,
       transferId: null,

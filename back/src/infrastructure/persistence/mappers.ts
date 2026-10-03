@@ -1,5 +1,5 @@
 import type { Account } from '../../domain/account.ts';
-import type { CashMovement, CashMovementType, MovementSource } from '../../domain/cash-movement.ts';
+import type { CashMovement, CashMovementType, ImportRole, MovementSource } from '../../domain/cash-movement.ts';
 import type { Currency } from '../../domain/currency.ts';
 import { Decimal } from '../../domain/decimal.ts';
 import type { Dividend, DividendKind, DividendStatus } from '../../domain/dividend.ts';
@@ -156,6 +156,7 @@ export const cashMovementMapper = {
     currency: r.currency as Currency,
     description: r.description,
     source: r.source as MovementSource,
+    importRole: r.importRole as ImportRole | null,
     tradeId: r.tradeId,
     dividendId: r.dividendId,
     transferId: r.transferId,
@@ -170,6 +171,7 @@ export const cashMovementMapper = {
     currency: m.currency,
     description: m.description,
     source: m.source,
+    importRole: m.importRole,
     tradeId: m.tradeId,
     dividendId: m.dividendId,
     transferId: m.transferId,

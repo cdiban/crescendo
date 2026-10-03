@@ -194,10 +194,10 @@ describe('SettingsScreen — instrumentos', () => {
 
 describe('SettingsScreen — meta de ingreso pasivo', () => {
   const prefs = (goal: { amount: string; currency: 'CLP' | 'USD' | 'EUR' } | null) => ({
-    method: 'GET', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD', monthlyIncomeGoal: goal },
+    method: 'GET', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD', monthlyIncomeGoal: goal, dividendCutThreshold: '0.10' },
   });
   async function openGoal() {
-    fireEvent.click(await screen.findByRole('tab', { name: 'Meta de ingreso' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Metas y alertas' }));
     return within(await screen.findByRole('form', { name: 'Meta de ingreso pasivo' }));
   }
 
@@ -244,5 +244,56 @@ describe('SettingsScreen — meta de ingreso pasivo', () => {
     fireEvent.click(form.getByRole('button', { name: 'Guardar meta' }));
     expect((await form.findByRole('alert')).textContent).toMatch(/mayor que 0/);
     expect(calls(fetchMock).some((c) => c.startsWith('PATCH'))).toBe(false);
+  });
+});
+
+describe('SettingsScreen — umbral de recorte del dividendo (P4)', () => {
+  const prefs = (dividendCutThreshold = '0.10') => ({
+    method: 'GET', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD', monthlyIncomeGoal: null, dividendCutThreshold },
+  });
+  async function openThreshold() {
+    fireEvent.click(await screen.findByRole('tab', { name: 'Metas y alertas' }));
+    return within(await screen.findByRole('form', { name: 'Umbral de recorte' }));
+  }
+
+  it('muestra el umbral en % y lo guarda como fracción con PATCH', async () => {
+    const fetchMock = mockFetch(routes([
+      prefs('0.10'),
+      { method: 'PATCH', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD', monthlyIncomeGoal: null, dividendCutThreshold: '0.15' } },
+    ]));
+    render(<SettingsScreen api={createApi()} />);
+    const form = await openThreshold();
+
+    await vi.waitFor(() => expect((form.getByLabelText('Umbral de recorte (%)') as HTMLInputElement).value).toBe('10'));
+    fireEvent.change(form.getByLabelText('Umbral de recorte (%)'), { target: { value: '15' } });
+    fireEvent.click(form.getByRole('button', { name: 'Guardar umbral' }));
+
+    await vi.waitFor(() => expect(lastBody(fetchMock, 'PATCH /api/v1/me/preferences')).toEqual({ dividendCutThreshold: '0.15' }));
+    expect((await form.findByRole('status')).textContent).toMatch(/Umbral guardado: 15%/);
+  });
+
+  it('acepta decimales con coma (12,5 → "0.125")', async () => {
+    const fetchMock = mockFetch(routes([
+      prefs('0.10'),
+      { method: 'PATCH', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD', monthlyIncomeGoal: null, dividendCutThreshold: '0.125' } },
+    ]));
+    render(<SettingsScreen api={createApi()} />);
+    const form = await openThreshold();
+    await vi.waitFor(() => expect((form.getByLabelText('Umbral de recorte (%)') as HTMLInputElement).value).toBe('10'));
+    fireEvent.change(form.getByLabelText('Umbral de recorte (%)'), { target: { value: '12,5' } });
+    fireEvent.click(form.getByRole('button', { name: 'Guardar umbral' }));
+    await vi.waitFor(() => expect(lastBody(fetchMock, 'PATCH /api/v1/me/preferences')).toEqual({ dividendCutThreshold: '0.125' }));
+  });
+
+  it.each(['0', '0,5', '99,5', '100', '-5', 'diez', ''])('rechaza "%s" (debe estar entre 1 y 99 %%) sin llamar a la API', async (value) => {
+    const fetchMock = mockFetch(routes([prefs('0.10')]));
+    render(<SettingsScreen api={createApi()} />);
+    const form = await openThreshold();
+    await vi.waitFor(() => expect((form.getByLabelText('Umbral de recorte (%)') as HTMLInputElement).value).toBe('10'));
+    fireEvent.change(form.getByLabelText('Umbral de recorte (%)'), { target: { value } });
+    fireEvent.click(form.getByRole('button', { name: 'Guardar umbral' }));
+
+    expect((await form.findByRole('alert')).textContent).toMatch(/entre 1 y 99 %/);
+    expect(calls(fetchMock)).not.toContain('PATCH /api/v1/me/preferences');
   });
 });

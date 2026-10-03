@@ -150,6 +150,8 @@
   --info-foreground: oklch(0.42 0.13 258);
   /* Series de gráficos: azul (patrimonio/principal), verde azulado (aportes), ámbar (anunciados/estimados), violeta, gris. */
   --chart-1: oklch(0.55 0.17 258);
+  /* Extremo atenuado de --chart-1 (mismo tono): años anteriores en Año contra año. */
+  --chart-1-faded: oklch(0.85 0.07 258);
   --chart-2: oklch(0.6 0.12 185);
   --chart-3: oklch(0.72 0.15 70);
   --chart-4: oklch(0.55 0.18 300);
@@ -190,6 +192,7 @@
   --info: oklch(0.3 0.06 258);
   --info-foreground: oklch(0.85 0.07 258);
   --chart-1: oklch(0.7 0.14 258);
+  --chart-1-faded: oklch(0.36 0.07 258);
   --chart-2: oklch(0.74 0.11 185);
   --chart-3: oklch(0.8 0.14 75);
   --chart-4: oklch(0.72 0.15 300);

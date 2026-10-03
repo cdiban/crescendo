@@ -70,3 +70,51 @@ describe('dividendsByMonth', () => {
     assert.equal(r.years.find((y) => y.year === 2026)!.growth, null);
   });
 });
+
+import { dividendsYearOverYear } from '../../../src/domain/dividend-stats.ts';
+
+describe('dividendsYearOverYear (hoy 2026-10-04)', () => {
+  // 2024: mar 100 · 2025: mar 120, jun 60, nov 80 · 2026: mar 150, sep 90; anunciados oct 40, dic 70.
+  const dividends = [
+    paid('2024-03-10', '100'),
+    paid('2025-03-10', '120'),
+    paid('2025-06-20', '60'),
+    paid('2025-11-05', '80'),
+    paid('2026-03-12', '150'),
+    paid('2026-09-30', '90'),
+    announced('2026-10-23', '40'),
+    announced('2026-12-15', '70'),
+  ];
+  const r = dividendsYearOverYear({ dividends, years: [2025, 2026], today: '2026-10-04' });
+  const month = (year: number, m: number) => r.years.find((y) => y.year === year)!.months[m - 1]!;
+  const show = (x: ReturnType<typeof month>) => [x.paidNet.toString(), x.announcedNet.toString(), x.ytdPaidNet?.toString() ?? null, x.growthVsPreviousYear?.toString() ?? null];
+
+  test('años con datos y bloques pedidos en orden ascendente, 12 meses cada uno', () => {
+    assert.deepEqual(r.availableYears, [2024, 2025, 2026]);
+    assert.deepEqual(r.years.map((y) => [y.year, y.months.length]), [[2025, 12], [2026, 12]]);
+  });
+
+  test('año completo: acumulado mes a mes; crecimiento null si el mes del año anterior es 0', () => {
+    assert.deepEqual(show(month(2025, 3)), ['120', '0', '120', '0.2']);
+    assert.deepEqual(show(month(2025, 6)), ['60', '0', '180', null]);
+    assert.deepEqual(show(month(2025, 12)), ['0', '0', '260', null]);
+    assert.deepEqual([r.years[0]!.totalPaidNet.toString(), r.years[0]!.growth?.toString()], ['260', '1.6']);
+  });
+
+  test('año en curso: anunciados aparte; acumulado null después del mes actual; crecimiento YTD', () => {
+    assert.deepEqual(show(month(2026, 3)), ['150', '0', '150', '0.25']);
+    assert.deepEqual(show(month(2026, 9)), ['90', '0', '240', null]);
+    assert.deepEqual(show(month(2026, 10)), ['0', '40', '240', null]);
+    assert.deepEqual(show(month(2026, 11)), ['0', '0', null, null]);
+    assert.deepEqual(show(month(2026, 12)), ['0', '70', null, null]);
+    const y = r.years[1]!;
+    // YTD: 240 contra 2025 hasta el 4-oct (120 + 60)
+    assert.deepEqual([y.totalPaidNet.toString(), y.totalAnnouncedNet.toString(), y.growth?.toString()], ['240', '110', '0.333333']);
+  });
+
+  test('sin año anterior en los datos → crecimientos null', () => {
+    const first = dividendsYearOverYear({ dividends, years: [2024], today: '2026-10-04' }).years[0]!;
+    assert.equal(first.growth, null);
+    assert.equal(first.months[2]!.growthVsPreviousYear, null);
+  });
+});

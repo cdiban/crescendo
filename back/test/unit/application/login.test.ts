@@ -1,5 +1,6 @@
 import { beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { Decimal } from '../../../src/domain/decimal.ts';
 import { Email } from '../../../src/domain/email.ts';
 import { InvalidCredentialsError } from '../../../src/application/errors.ts';
 import { Login } from '../../../src/application/use-cases/login.ts';
@@ -38,6 +39,7 @@ describe('Login', () => {
       createdAt: NOW,
       reportingCurrency: 'USD',
       monthlyIncomeGoal: null,
+      dividendCutThreshold: Decimal.parse('0.1'),
     });
   });
 

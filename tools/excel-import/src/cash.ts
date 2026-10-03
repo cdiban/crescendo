@@ -1,4 +1,4 @@
-import { UNASSIGNED_IMPORT_DEPOSIT_DESCRIPTION } from '../../../back/src/domain/cash-movement.ts';
+import { IMPORT_DESCRIPTIONS } from '../../../back/src/domain/cash-movement.ts';
 import { Decimal } from '../../../back/src/domain/decimal.ts';
 import type { BundleCashMovement } from './bundle.ts';
 
@@ -30,7 +30,7 @@ export function inferCashMovements(input: { flows: CashFlow[]; targets: CashTarg
     for (const f of flows) {
       balance = balance.add(f.amount);
       if (balance.isNegative()) {
-        result.push({ accountKey, date: f.date, type: 'DEPOSIT', amount: balance.neg().toString(), currency, description: 'Aporte inferido (importación)' });
+        result.push({ accountKey, date: f.date, type: 'DEPOSIT', amount: balance.neg().toString(), currency, description: IMPORT_DESCRIPTIONS.INFERRED_CONTRIBUTION, importRole: 'INFERRED_CONTRIBUTION' });
         balance = Decimal.ZERO;
       }
     }
@@ -38,9 +38,9 @@ export function inferCashMovements(input: { flows: CashFlow[]; targets: CashTarg
     const target = input.targets.find((t) => t.accountKey === accountKey && t.currency === currency)?.amount ?? Decimal.ZERO;
     const residual = target.sub(balance);
     if (residual.isPositive()) {
-      result.push({ accountKey, date: input.cutoffDate, type: 'DEPOSIT', amount: residual.toString(), currency, description: UNASSIGNED_IMPORT_DEPOSIT_DESCRIPTION });
+      result.push({ accountKey, date: input.cutoffDate, type: 'DEPOSIT', amount: residual.toString(), currency, description: IMPORT_DESCRIPTIONS.UNASSIGNED_DEPOSIT, importRole: 'UNASSIGNED_DEPOSIT' });
     } else if (residual.isNegative()) {
-      result.push({ accountKey, date: input.cutoffDate, type: 'ADJUSTMENT', amount: residual.toString(), currency, description: 'Ajuste al saldo del Excel (importación)' });
+      result.push({ accountKey, date: input.cutoffDate, type: 'ADJUSTMENT', amount: residual.toString(), currency, description: IMPORT_DESCRIPTIONS.RESIDUAL_ADJUSTMENT, importRole: 'RESIDUAL_ADJUSTMENT' });
     }
   }
   return result;

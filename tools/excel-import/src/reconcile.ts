@@ -76,9 +76,10 @@ export function reconcile(raw: RawWorkbook, bundle: ImportBundle, anomalies: Ano
     const fromDividends = Decimal.sum(bundle.dividends.filter((d) => d.accountKey === accountKey && d.status === 'PAID').map(dividendNet));
     const movements = bundle.cashMovements.filter((m) => m.accountKey === accountKey);
     const sum = (ms: typeof movements) => Decimal.sum(ms.map((m) => Decimal.parse(m.amount)));
-    const inferred = movements.filter((m) => m.description.startsWith('Aporte inferido'));
-    const unassigned = movements.filter((m) => m.description.startsWith('Aporte no asignado'));
-    const adjustment = movements.filter((m) => m.type === 'ADJUSTMENT');
+    // Agrupado por la marca de la importación (no por el texto de la descripción).
+    const inferred = movements.filter((m) => m.importRole === 'INFERRED_CONTRIBUTION');
+    const unassigned = movements.filter((m) => m.importRole === 'UNASSIGNED_DEPOSIT');
+    const adjustment = movements.filter((m) => m.importRole === 'RESIDUAL_ADJUSTMENT');
     const final = fromTrades.add(fromDividends).add(sum(movements));
     cash.push(
       check(accountKey, target, final, Decimal.ZERO,

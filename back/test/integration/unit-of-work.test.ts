@@ -26,7 +26,7 @@ describe('UnitOfWork (Postgres real)', () => {
         const account = await r.accounts.add(newAccount('A'));
         await r.cashMovements.add({
           userId, accountId: account.id, date: '2025-01-01', type: 'DEPOSIT', amount: Decimal.parse('10'), currency: 'CLP',
-          description: null, source: 'MANUAL', tradeId: null, dividendId: null, transferId: null,
+          description: null, source: 'MANUAL', importRole: null, tradeId: null, dividendId: null, transferId: null,
         });
         throw new Error('falla a mitad');
       }),
@@ -43,7 +43,7 @@ describe('UnitOfWork (Postgres real)', () => {
         // DEPOSIT negativo: lo rechaza el CHECK cash_movements_sign.
         await r.cashMovements.add({
           userId, accountId: account.id, date: '2025-01-01', type: 'DEPOSIT', amount: Decimal.parse('-10'), currency: 'CLP',
-          description: null, source: 'MANUAL', tradeId: null, dividendId: null, transferId: null,
+          description: null, source: 'MANUAL', importRole: null, tradeId: null, dividendId: null, transferId: null,
         });
       }),
     );
@@ -76,7 +76,7 @@ describe('UnitOfWork (Postgres real)', () => {
       container.uow.transaction((r) =>
         r.cashMovements.add({
           userId: other, accountId: account.id, date: '2025-01-01', type: 'DEPOSIT', amount: Decimal.parse('10'), currency: 'CLP',
-          description: null, source: 'MANUAL', tradeId: null, dividendId: null, transferId: null,
+          description: null, source: 'MANUAL', importRole: null, tradeId: null, dividendId: null, transferId: null,
         }),
       ),
     );

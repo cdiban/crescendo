@@ -107,6 +107,7 @@ export class Trades {
         currency: trade.currency,
         description: movementDescription(trade, instrument),
         source: 'AUTOMATIC',
+        importRole: null,
         tradeId: trade.id,
         dividendId: null,
         transferId: null,

@@ -66,6 +66,13 @@ export type Allocation = Json<'getPortfolioAllocation', 200>;
 export type SnowballQuery = Query<'getSnowballProjection'>;
 export type SnowballProjection = Schemas['SnowballProjection'];
 export type Money = Schemas['Money'];
+export type DividendsPerShareQuery = Query<'getDividendsPerShare'>;
+export type DividendsPerShare = Json<'getDividendsPerShare', 200>;
+export type DividendPerShareRow = Schemas['DividendPerShareRow'];
+export type DividendHealthStatus = DividendPerShareRow['status'];
+export type DividendsYearOverYearQuery = Query<'getDividendsYearOverYear'>;
+export type DividendsYearOverYear = Json<'getDividendsYearOverYear', 200>;
+export type ImportRole = NonNullable<CashMovement['importRole']>;
 export type TradeQuery = Query<'listTrades'>;
 export type DividendQuery = Query<'listDividends'>;
 export type DividendSummaryQuery = Query<'getDividendSummary'>;
@@ -187,6 +194,10 @@ export function createApi(options: ApiOptions = {}) {
       (await request('GET', '/dividends/monthly', undefined, query)) as DividendsMonthly,
     getDividendCalendar: async (query: DividendCalendarQuery = {}) =>
       (await request('GET', '/dividends/calendar', undefined, query)) as DividendCalendar,
+    getDividendsPerShare: async (query: DividendsPerShareQuery = {}) =>
+      (await request('GET', '/dividends/per-share', undefined, query)) as DividendsPerShare,
+    getDividendsYearOverYear: async (query: DividendsYearOverYearQuery = {}) =>
+      (await request('GET', '/dividends/year-over-year', undefined, query)) as DividendsYearOverYear,
     getDividendSummary: async (query: DividendSummaryQuery) =>
       (await request('GET', '/dividends/summary', undefined, query)) as DividendSummary,
     createDividend: async (body: DividendInput) => (await request('POST', '/dividends', body)) as Dividend,

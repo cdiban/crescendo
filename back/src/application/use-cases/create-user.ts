@@ -1,5 +1,5 @@
 import { Email } from '../../domain/email.ts';
-import { DEFAULT_REPORTING_CURRENCY, type User } from '../../domain/user.ts';
+import { DEFAULT_DIVIDEND_CUT_THRESHOLD, DEFAULT_REPORTING_CURRENCY, type User } from '../../domain/user.ts';
 import { EmailAlreadyRegisteredError, PasswordTooShortError } from '../errors.ts';
 import type { Clock } from '../ports/clock.ts';
 import type { PasswordHasher } from '../ports/password-hasher.ts';
@@ -37,6 +37,7 @@ export class CreateUser {
       createdAt: clock.now(),
       reportingCurrency: DEFAULT_REPORTING_CURRENCY,
       monthlyIncomeGoal: null,
+      dividendCutThreshold: DEFAULT_DIVIDEND_CUT_THRESHOLD,
     });
   }
 }

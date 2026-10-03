@@ -1,4 +1,5 @@
 import {
+  type ImportRole,
   isManualMovementType,
   signedManualAmount,
   type CashMovement,
@@ -52,8 +53,13 @@ export class Cash {
     return this.#uow.read((r) => r.cashMovements.search(userId, filter));
   }
 
-  /** Movimiento manual. `source` IMPORT sólo lo usa la importación inicial. */
-  create(userId: string, input: CashMovementInput, source: Exclude<MovementSource, 'AUTOMATIC'> = 'MANUAL'): Promise<CashMovement> {
+  /** Movimiento manual. `source` IMPORT (con su `importRole`) sólo lo usa la importación inicial. */
+  create(
+    userId: string,
+    input: CashMovementInput,
+    source: Exclude<MovementSource, 'AUTOMATIC'> = 'MANUAL',
+    importRole: ImportRole | null = null,
+  ): Promise<CashMovement> {
     return this.#uow.transaction(async (r) => {
       const account = await lockAccount(r, userId, input.accountId);
       assertNotArchived(account);
@@ -71,6 +77,7 @@ export class Cash {
         currency: input.currency,
         description: input.description,
         source,
+        importRole: source === 'IMPORT' ? importRole : null,
         tradeId: null,
         dividendId: null,
         transferId: null,
@@ -111,7 +118,7 @@ export class Cash {
       }
 
       const transferId = this.#ids.newId();
-      const common = { userId, date: input.date, description: input.description, source: 'AUTOMATIC' as const, tradeId: null, dividendId: null, transferId };
+      const common = { userId, date: input.date, description: input.description, source: 'AUTOMATIC' as const, importRole: null, tradeId: null, dividendId: null, transferId };
       const out = await r.cashMovements.add({
         ...common,
         accountId: input.fromAccountId,
