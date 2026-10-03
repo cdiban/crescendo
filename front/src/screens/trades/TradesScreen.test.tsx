@@ -71,6 +71,7 @@ describe('TradesScreen', () => {
     fireEvent.change(f.getByLabelText('Cantidad'), { target: { value: '2,5' } });
     fireEvent.change(f.getByLabelText('Precio'), { target: { value: '61.2' } });
     fireEvent.change(f.getByLabelText('Comisión'), { target: { value: '1' } });
+    expect(f.getByLabelText('IVA de la comisión')).toBeTruthy();
     const before = fetchMock.mock.calls.length;
     fireEvent.click(f.getByRole('button', { name: 'Registrar compra' }));
 

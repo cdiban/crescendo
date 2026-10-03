@@ -19,7 +19,10 @@ type FieldProps = {
 export function FormField({ label, htmlFor, hint, className, children }: FieldProps) {
   return (
     <div className={cn('grid min-w-0 content-start gap-1.5', className)}>
-      <Label htmlFor={htmlFor}>{label}</Label>
+      {/* Una sola línea: si la etiqueta es larga se trunca (detalle en title) y no empuja el control hacia abajo. */}
+      <Label htmlFor={htmlFor} className="block truncate leading-5" title={typeof label === 'string' ? label : undefined}>
+        {label}
+      </Label>
       {children}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
@@ -50,7 +53,7 @@ export function CheckboxField({ label, className, ...props }: Omit<ComponentProp
 export function RadioGroupField({ legend, className, children }: { legend: ReactNode; className?: string; children: ReactNode }) {
   return (
     <fieldset className={cn('grid min-w-0 content-start gap-1.5', className)}>
-      <legend className="mb-1.5 text-sm leading-none font-medium">{legend}</legend>
+      <legend className="mb-1.5 text-sm leading-5 font-medium">{legend}</legend>
       <div className="flex min-h-8 flex-wrap items-center gap-x-4 gap-y-1">{children}</div>
     </fieldset>
   );

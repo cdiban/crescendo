@@ -78,7 +78,7 @@ describe('DividendForm', () => {
     fireEvent.click(screen.getByLabelText('Por acción'));
     expect(screen.queryByLabelText('Monto bruto')).toBeNull();
     change('Dividendo por acción', '0,51');
-    change(/Cantidad de acciones/, '10.5');
+    change('Cantidad (opcional)', '10.5');
     fireEvent.click(screen.getByRole('button', { name: 'Registrar dividendo' }));
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
@@ -263,7 +263,7 @@ describe('DividendForm', () => {
       renderForm({ initial: perShare, onCancel: vi.fn() });
       expect(value(/Neto recibido/)).toBe('4.55');
 
-      change(/Cantidad de acciones/, '11');
+      change('Cantidad (opcional)', '11');
       expect(value(/Neto recibido/)).toBe('');
 
       cleanupAndRender(perShare);

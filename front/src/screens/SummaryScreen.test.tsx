@@ -22,7 +22,7 @@ describe('SummaryScreen', () => {
     expect(text(screen.getByText(/Datos al/))).toMatch(/^Datos al 03-10-2026 · precios al 03-10-2026 \d\d:\d\d · tipos de cambio al 02-10-2026 · en USD$/);
 
     expect(text(card('Capital aportado'))).toMatch(/US\$61\.234,57/);
-    expect(text(card('Costo invertido'))).toMatch(/US\$62\.000,12.*A tipo de cambio actual: US\$60\.500,50/);
+    expect(text(card('Costo invertido'))).toMatch(/US\$62\.000,12.*A TC actualUS\$60\.500,50/);
     expect(text(card('Caja'))).toMatch(/US\$3\.434,10/);
     expect(text(card('Ganancia realizada'))).toMatch(/US\$204,10/);
   });
@@ -31,13 +31,13 @@ describe('SummaryScreen', () => {
     mockFetch(routes());
     render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
 
-    expect(text(await screen.findByRole('region', { name: 'Patrimonio' }))).toMatch(/US\$67\.434,60.*Valor de mercado US\$64\.000,50 \+ caja US\$3\.434,10/);
+    expect(text(await screen.findByRole('region', { name: 'Patrimonio' }))).toMatch(/US\$67\.434,60.*PosicionesUS\$64\.000,50CajaUS\$3\.434,10/);
     const unrealized = card('Ganancia no realizada');
     expect(within(unrealized).getByText('US$2.000,76').dataset.tone).toBe('positive');
-    expect(text(unrealized)).toMatch(/Por precioUS\$3\.500,38.*Por tipo de cambioUS\$-1\.499,62/);
+    expect(text(unrealized)).toMatch(/PrecioUS\$3\.500,38.*Tipo de cambioUS\$-1\.499,62/);
     const total = card('Ganancia total');
     expect(within(total).getByText('US$6.200,03').dataset.tone).toBe('positive');
-    expect(text(total)).toMatch(/Patrimonio − capital aportado \(US\$61\.234,57\)/);
+    expect(text(total)).toMatch(/AportadoUS\$61\.234,57.*Patrimonio − capital aportado/);
   });
 
   it('muestra el yield actual entre los dividendos y la fecha de los precios', async () => {
@@ -103,6 +103,17 @@ describe('SummaryScreen', () => {
     render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
     const fx = await screen.findByRole('region', { name: 'Efecto cambiario' });
     for (const el of within(fx).getAllByText('US$0,00')) expect(el.className).not.toMatch(/negative|positive/);
+  });
+
+  it('cada tarjeta tiene el valor principal marcado y su detalle como pares etiqueta/valor en una línea', async () => {
+    mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    const unrealized = await screen.findByRole('region', { name: 'Ganancia no realizada' });
+    expect(unrealized.querySelector('[data-slot=stat-value]')!.textContent!.replace(/\u00a0/g, ' ')).toBe('US$2.000,76');
+    const terms = within(unrealized).getAllByRole('term');
+    expect(terms.map((t) => t.textContent)).toEqual(['Precio', 'Tipo de cambio']);
+    expect(terms.map((t) => t.getAttribute('title'))).toEqual(['Efecto del precio', 'Efecto del tipo de cambio sobre el costo vigente']);
+    for (const t of terms) expect(t.className).toMatch(/truncate/);
   });
 
   it('muestra dividendos del año, 12 meses, total y esperado anual', async () => {

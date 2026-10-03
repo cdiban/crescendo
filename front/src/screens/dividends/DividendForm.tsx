@@ -246,7 +246,7 @@ export function DividendForm({ api, accounts, instruments, positions, initial, o
             <FormField label="Dividendo por acción" htmlFor={`${ids}-pershare`}>
               <Input id={`${ids}-pershare`} {...fieldProps('perShare')} inputMode="decimal" value={perShare} onChange={(e) => amountChanged(setPerShare)(e.target.value)} />
             </FormField>
-            <FormField label="Cantidad de acciones (opcional)" htmlFor={`${ids}-qty`}>
+            <FormField label="Cantidad (opcional)" htmlFor={`${ids}-qty`}>
               <Input
                 id={`${ids}-qty`}
                 {...fieldProps('quantity')}

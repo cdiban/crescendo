@@ -35,6 +35,8 @@ describe('DataTable', () => {
     expect(region.getAttribute('tabindex')).toBe('0');
     expect(region.dataset.stickyHeader).toBe('true');
     expect(region.dataset.stickyFirstColumn).toBe('true');
+    // Celdas alineadas por línea base: una celda de dos líneas no desalinea los números de su fila.
+    expect(region.dataset.cellAlign).toBe('baseline');
     expect(within(region).getAllByRole('row')).toHaveLength(4);
   });
 

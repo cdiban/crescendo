@@ -114,16 +114,25 @@ describe('PositionsScreen', () => {
     const values = Object.fromEntries(
       [...total.querySelectorAll('dt')].map((dt) => [dt.textContent, (dt.nextElementSibling?.textContent ?? '').replace(/\u00a0/g, ' ')]),
     );
+    // Etiquetas cortas en una línea; el detalle va en el title.
     expect(values).toEqual({
       'Valor de mercado': 'US$1.032,50',
-      'Ganancia no realizada': 'US$83,08',
+      'No realizada': 'US$83,08',
       'Efecto precio': 'US$95,70',
       'Efecto cambiario': 'US$-12,62',
-      'Costo (TC histórico)': 'US$1.009,42',
+      'Costo histórico': 'US$1.009,42',
       'Costo a TC actual': 'US$996,80',
-      'Ganancia realizada': 'US$202,15',
-      'Dividendos cobrados (neto)': 'US$116,04',
-      'Ingreso anual esperado (bruto)': 'US$53,85',
+      'Realizada': 'US$202,15',
+      'Dividendos': 'US$116,04',
+      'Ingreso anual': 'US$53,85',
+    });
+    const titles = Object.fromEntries([...total.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.getAttribute('title')]));
+    expect(titles).toMatchObject({
+      'No realizada': 'Ganancia no realizada',
+      'Costo histórico': 'Costo vigente a los tipos de cambio de cada compra',
+      Realizada: 'Ganancia realizada',
+      Dividendos: 'Dividendos cobrados (neto)',
+      'Ingreso anual': 'Ingreso anual esperado (bruto)',
     });
     expect(within(total).getByText('US$-12,62').className).toMatch(/negative/);
   });

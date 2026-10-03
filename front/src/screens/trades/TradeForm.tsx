@@ -116,7 +116,7 @@ export function TradeForm({ api, accounts, instruments, initial, onSaved, onCanc
         <FormField label="Comisión" htmlFor={`${ids}-commission`}>
           <Input id={`${ids}-commission`} inputMode="decimal" placeholder="0" value={commission} onChange={(e) => setCommission(e.target.value)} />
         </FormField>
-        <FormField label="Impuesto sobre la comisión (monto)" htmlFor={`${ids}-tax`}>
+        <FormField label="IVA de la comisión" htmlFor={`${ids}-tax`} hint="Monto, no tasa">
           <Input id={`${ids}-tax`} inputMode="decimal" placeholder="0" value={commissionTax} onChange={(e) => setCommissionTax(e.target.value)} />
         </FormField>
         <FormField label="Notas" htmlFor={`${ids}-notes`} className="sm:col-span-2 lg:col-span-3">

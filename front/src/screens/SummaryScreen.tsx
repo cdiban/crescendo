@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { Info } from 'lucide-react';
 import type { Api, Currency, FxRate } from '../api/client.ts';
 import { DataTable } from '../components/DataTable.tsx';
+import { DefinitionList } from '../components/stats.tsx';
 import { ErrorAlert, Loading, PageHeader, Signed } from '../components/ui.tsx';
 import { formatDate, formatDateTime, formatMoney, formatPercent, formatRate, isOne } from '../lib/format.ts';
 import { useAsync } from '../lib/useAsync.ts';
@@ -52,37 +53,40 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard title="Patrimonio" hint="Valor de mercado de las posiciones + caja, al tipo de cambio actual">
             <Stat>{money(s.netWorth)}</Stat>
-            <p className="text-xs text-muted-foreground">
-              Valor de mercado {money(s.marketValue)} + caja {money(s.cash)}
-            </p>
+            <DefinitionList
+              items={[
+                { label: 'Posiciones', title: 'Valor de mercado de las posiciones', value: money(s.marketValue) },
+                { label: 'Caja', title: 'Saldos de caja al tipo de cambio actual', value: money(s.cash) },
+              ]}
+            />
           </StatCard>
-          <StatCard title="Ganancia total" hint="Incluye precio, tipo de cambio, ventas y dividendos">
+          <StatCard title="Ganancia total" hint="Patrimonio − capital aportado: incluye precio, tipo de cambio, ventas y dividendos">
             <Stat>
               <Signed amount={s.totalGain} currency={s.reportingCurrency} colorPositive />
             </Stat>
-            <p className="text-xs text-muted-foreground">Patrimonio − capital aportado ({money(s.contributedCapital)})</p>
+            <DefinitionList items={[{ label: 'Aportado', title: 'Capital aportado', value: money(s.contributedCapital) }]} />
           </StatCard>
           <StatCard title="Ganancia no realizada" hint="Valor de mercado − costo vigente de las posiciones con precio">
             <Stat>
               <Signed amount={s.unrealizedGain} currency={s.reportingCurrency} colorPositive />
             </Stat>
-            <Pairs>
-              <dt>Por precio</dt>
-              <dd>
-                <Signed amount={s.priceEffect} currency={s.reportingCurrency} colorPositive />
-              </dd>
-              <dt>Por tipo de cambio</dt>
-              <dd>
-                <Signed amount={s.fxEffect.positions} currency={s.reportingCurrency} colorPositive />
-              </dd>
-            </Pairs>
+            <DefinitionList
+              items={[
+                { label: 'Precio', title: 'Efecto del precio', value: <Signed amount={s.priceEffect} currency={s.reportingCurrency} colorPositive /> },
+                {
+                  label: 'Tipo de cambio',
+                  title: 'Efecto del tipo de cambio sobre el costo vigente',
+                  value: <Signed amount={s.fxEffect.positions} currency={s.reportingCurrency} colorPositive />,
+                },
+              ]}
+            />
           </StatCard>
           <StatCard title="Capital aportado" hint="Depósitos − retiros, cada uno al tipo de cambio de su fecha">
             <Stat>{money(s.contributedCapital)}</Stat>
           </StatCard>
           <StatCard title="Costo invertido" hint="Posiciones vigentes a los tipos de cambio de cada compra">
             <Stat>{money(s.costBasis)}</Stat>
-            <p className="text-xs text-muted-foreground">A tipo de cambio actual: {money(s.costBasisAtCurrentRate)}</p>
+            <DefinitionList items={[{ label: 'A TC actual', title: 'Costo vigente al tipo de cambio actual', value: money(s.costBasisAtCurrentRate) }]} />
           </StatCard>
           <StatCard title="Caja" hint="Saldos al tipo de cambio actual">
             <Stat>{money(s.cash)}</Stat>
@@ -91,16 +95,12 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
             <Stat>
               <Signed amount={s.fxEffect.total} currency={s.reportingCurrency} colorPositive />
             </Stat>
-            <Pairs>
-              <dt>Posiciones</dt>
-              <dd>
-                <Signed amount={s.fxEffect.positions} currency={s.reportingCurrency} colorPositive />
-              </dd>
-              <dt>Caja</dt>
-              <dd>
-                <Signed amount={s.fxEffect.cash} currency={s.reportingCurrency} colorPositive />
-              </dd>
-            </Pairs>
+            <DefinitionList
+              items={[
+                { label: 'Posiciones', value: <Signed amount={s.fxEffect.positions} currency={s.reportingCurrency} colorPositive /> },
+                { label: 'Caja', value: <Signed amount={s.fxEffect.cash} currency={s.reportingCurrency} colorPositive /> },
+              ]}
+            />
           </StatCard>
           <StatCard title="Ganancia realizada" hint="Ventas al tipo de cambio de la venta − costo histórico">
             <Stat>
@@ -108,18 +108,15 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
             </Stat>
           </StatCard>
           <StatCard title="Dividendos" className="sm:col-span-1 xl:col-span-2">
-            <Pairs>
-              <dt>Este año (neto)</dt>
-              <dd>{money(s.dividends.netYearToDate)}</dd>
-              <dt>Últimos 12 meses (neto)</dt>
-              <dd>{money(s.dividends.netLast12Months)}</dd>
-              <dt>Total histórico (neto)</dt>
-              <dd>{money(s.dividends.netTotal)}</dd>
-              <dt>Esperado anual (bruto)</dt>
-              <dd>{money(s.dividends.expectedAnnualGross)}</dd>
-              <dt>Yield actual</dt>
-              <dd>{s.dividends.currentYield ? formatPercent(s.dividends.currentYield) : '—'}</dd>
-            </Pairs>
+            <DefinitionList
+              items={[
+                { label: 'Este año (neto)', value: money(s.dividends.netYearToDate) },
+                { label: 'Últimos 12 meses (neto)', value: money(s.dividends.netLast12Months) },
+                { label: 'Total histórico (neto)', value: money(s.dividends.netTotal) },
+                { label: 'Esperado anual (bruto)', value: money(s.dividends.expectedAnnualGross) },
+                { label: 'Yield actual', value: s.dividends.currentYield ? formatPercent(s.dividends.currentYield) : '—' },
+              ]}
+            />
           </StatCard>
           <StatCard title="Exposición por moneda" hint="Costo vigente a tipo de cambio actual + caja">
             <ul className="grid gap-3">
@@ -164,12 +161,13 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
   );
 }
 
+/** Tarjeta de indicador: título en una línea, valor principal a la misma altura en toda la fila y nota al pie abajo. */
 function StatCard({ title, hint, className, children }: { title: string; hint?: string; className?: string; children: ReactNode }) {
   const id = `card-${title.replace(/\W+/g, '-')}`;
   return (
     <Card role="region" aria-labelledby={id} className={cn('gap-3', className)}>
       <CardHeader>
-        <CardTitle id={id} className="text-sm font-medium text-muted-foreground">
+        <CardTitle id={id} className="truncate text-sm font-medium text-muted-foreground" title={title}>
           {title}
         </CardTitle>
       </CardHeader>
@@ -180,14 +178,10 @@ function StatCard({ title, hint, className, children }: { title: string; hint?: 
 }
 
 function Stat({ children }: { children: ReactNode }) {
-  return <p className="font-heading text-2xl font-semibold tracking-tight tabular-nums">{children}</p>;
-}
-
-function Pairs({ children }: { children: ReactNode }) {
   return (
-    <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm [&_dd]:text-right [&_dd]:font-medium [&_dd]:tabular-nums [&_dt]:text-muted-foreground">
+    <p data-slot="stat-value" className="font-heading text-2xl font-semibold tracking-tight whitespace-nowrap tabular-nums">
       {children}
-    </dl>
+    </p>
   );
 }
 

@@ -39,6 +39,7 @@ export function DataTable({ label, children, footer, fill, isEmpty, empty, loadi
         tabIndex={0}
         data-sticky-header="true"
         data-sticky-first-column="true"
+        data-cell-align="baseline"
         className={cn(
           'relative min-h-0 flex-1 overflow-auto overscroll-contain outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
           // Encabezado y pie fijos al desplazar en vertical.
@@ -48,6 +49,9 @@ export function DataTable({ label, children, footer, fill, isEmpty, empty, loadi
           '[&_tr>*:first-child]:sticky [&_tr>*:first-child]:left-0 [&_tbody_tr>*:first-child]:z-10 [&_tbody_tr>*:first-child]:bg-card',
           '[&_thead_tr>*:first-child]:z-30 [&_tfoot_tr>*:first-child]:z-30',
           '[&_tr>*:first-child]:shadow-[inset_-1px_0_0_var(--color-border)]',
+          // Filas alineadas por línea base: una celda de dos líneas (monto + %) no desplaza los números de la fila.
+          '[&_tbody_td]:align-baseline [&_tbody_th]:align-baseline [&_tbody_th]:h-auto [&_tbody_th]:py-2',
+          '[&_tfoot_td]:align-baseline [&_tfoot_th]:align-baseline [&_tfoot_th]:h-auto [&_tfoot_th]:py-2',
         )}
       >
         {loading && !isEmpty ? (

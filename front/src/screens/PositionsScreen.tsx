@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { Api, Currency, Position, PositionList } from '../api/client.ts';
 import { DataTable } from '../components/DataTable.tsx';
 import { CheckboxField, FormField } from '../components/form.tsx';
+import { StatStrip } from '../components/stats.tsx';
 import { ErrorAlert, PageHeader, Signed, SignedPercent, isZero, orDash } from '../components/ui.tsx';
 import { formatDate, formatDateTime, formatMoney, formatPercent, formatQuantity, formatUnitPrice, isOne, monthName } from '../lib/format.ts';
 import { useAsync } from '../lib/useAsync.ts';
@@ -151,27 +152,34 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
             </h2>
             <p className="text-xs text-muted-foreground">Tipos de cambio al {formatDate(data.fxAsOf)}</p>
           </div>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 [&_dd]:font-semibold [&_dd]:tabular-nums [&_dt]:text-xs [&_dt]:text-muted-foreground">
-            <TotalItem label="Valor de mercado">{orDash(data.total.marketValue, (v) => formatMoney(v, data.total.currency))}</TotalItem>
-            <TotalItem label="Ganancia no realizada">
-              {orDash(data.total.unrealizedGain, (v) => <Signed amount={v} currency={data.total.currency} colorPositive />)}
-            </TotalItem>
-            <TotalItem label="Efecto precio">
-              {orDash(data.total.priceEffect, (v) => <Signed amount={v} currency={data.total.currency} colorPositive />)}
-            </TotalItem>
-            <TotalItem label="Efecto cambiario">
-              <Signed amount={data.total.fxEffect} currency={data.total.currency} colorPositive />
-            </TotalItem>
-            <TotalItem label="Costo (TC histórico)">{formatMoney(data.total.costBasis, data.total.currency)}</TotalItem>
-            <TotalItem label="Costo a TC actual">{formatMoney(data.total.costBasisAtCurrentRate, data.total.currency)}</TotalItem>
-            <TotalItem label="Ganancia realizada">
-              <Signed amount={data.total.realizedGain} currency={data.total.currency} />
-            </TotalItem>
-            <TotalItem label="Dividendos cobrados (neto)">{formatMoney(data.total.dividendsNet, data.total.currency)}</TotalItem>
-            <TotalItem label="Ingreso anual esperado (bruto)">
-              {orDash(data.total.expectedAnnualIncomeGross, (v) => formatMoney(v, data.total.currency))}
-            </TotalItem>
-          </dl>
+          <StatStrip
+            items={[
+              { label: 'Valor de mercado', value: orDash(data.total.marketValue, (v) => formatMoney(v, data.total.currency)) },
+              {
+                label: 'No realizada',
+                title: 'Ganancia no realizada',
+                value: orDash(data.total.unrealizedGain, (v) => <Signed amount={v} currency={data.total.currency} colorPositive />),
+              },
+              {
+                label: 'Efecto precio',
+                value: orDash(data.total.priceEffect, (v) => <Signed amount={v} currency={data.total.currency} colorPositive />),
+              },
+              { label: 'Efecto cambiario', value: <Signed amount={data.total.fxEffect} currency={data.total.currency} colorPositive /> },
+              {
+                label: 'Costo histórico',
+                title: 'Costo vigente a los tipos de cambio de cada compra',
+                value: formatMoney(data.total.costBasis, data.total.currency),
+              },
+              { label: 'Costo a TC actual', value: formatMoney(data.total.costBasisAtCurrentRate, data.total.currency) },
+              { label: 'Realizada', title: 'Ganancia realizada', value: <Signed amount={data.total.realizedGain} currency={data.total.currency} /> },
+              { label: 'Dividendos', title: 'Dividendos cobrados (neto)', value: formatMoney(data.total.dividendsNet, data.total.currency) },
+              {
+                label: 'Ingreso anual',
+                title: 'Ingreso anual esperado (bruto)',
+                value: orDash(data.total.expectedAnnualIncomeGross, (v) => formatMoney(v, data.total.currency)),
+              },
+            ]}
+          />
           {!includeClosed && (
             <p className="text-xs text-muted-foreground">
               Los totales no incluyen la ganancia realizada de posiciones cerradas (marca «Incluir cerradas» para verla); el
@@ -181,16 +189,6 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
         </Card>
       )}
     </>
-  );
-}
-
-/** dt + dd en un contenedor (los tests leen dt.nextElementSibling). */
-function TotalItem({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="grid gap-0.5">
-      <dt>{label}</dt>
-      <dd>{children}</dd>
-    </div>
   );
 }
 
