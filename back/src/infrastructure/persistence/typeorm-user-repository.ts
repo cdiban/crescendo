@@ -1,11 +1,10 @@
-import type { DataSource, Repository } from 'typeorm';
+import type { EntityManager, Repository } from 'typeorm';
 import { Email } from '../../domain/email.ts';
 import type { NewUser, User } from '../../domain/user.ts';
 import { EmailAlreadyRegisteredError } from '../../application/errors.ts';
 import type { UserRepository } from '../../application/ports/user-repository.ts';
+import { isUniqueViolation } from './errors.ts';
 import { UserSchema, type UserRecord } from './schemas.ts';
-
-const UNIQUE_VIOLATION = '23505';
 
 function toDomain(record: UserRecord): User {
   return { id: record.id, email: Email.create(record.email), passwordHash: record.passwordHash, createdAt: record.createdAt };
@@ -14,8 +13,8 @@ function toDomain(record: UserRecord): User {
 export class TypeOrmUserRepository implements UserRepository {
   readonly #repo: Repository<UserRecord>;
 
-  constructor(dataSource: DataSource) {
-    this.#repo = dataSource.getRepository(UserSchema);
+  constructor(manager: EntityManager) {
+    this.#repo = manager.getRepository(UserSchema);
   }
 
   async findById(id: string): Promise<User | null> {
@@ -35,8 +34,7 @@ export class TypeOrmUserRepository implements UserRepository {
       );
       return toDomain(record);
     } catch (err) {
-      const code = (err as { driverError?: { code?: string } }).driverError?.code;
-      if (code === UNIQUE_VIOLATION) throw new EmailAlreadyRegisteredError();
+      if (isUniqueViolation(err)) throw new EmailAlreadyRegisteredError();
       throw err;
     }
   }

@@ -1,4 +1,4 @@
-import type { DataSource, Repository } from 'typeorm';
+import type { EntityManager, Repository } from 'typeorm';
 import type { Session } from '../../domain/session.ts';
 import type { SessionRepository } from '../../application/ports/session-repository.ts';
 import { SessionSchema, type SessionRecord } from './schemas.ts';
@@ -6,8 +6,8 @@ import { SessionSchema, type SessionRecord } from './schemas.ts';
 export class TypeOrmSessionRepository implements SessionRepository {
   readonly #repo: Repository<SessionRecord>;
 
-  constructor(dataSource: DataSource) {
-    this.#repo = dataSource.getRepository(SessionSchema);
+  constructor(manager: EntityManager) {
+    this.#repo = manager.getRepository(SessionSchema);
   }
 
   async add(session: Session): Promise<void> {

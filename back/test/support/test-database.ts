@@ -30,5 +30,6 @@ export async function startTestContainer(overrides: Partial<Config> = {}): Promi
 }
 
 export async function resetDatabase(container: Container): Promise<void> {
-  await container.dataSource.query('TRUNCATE TABLE sessions, users CASCADE');
+  // El catálogo (markets, instruments) se conserva salvo los instrumentos creados por los tests.
+  await container.dataSource.query('TRUNCATE TABLE cash_movements, dividends, trades, accounts, instruments, sessions, users CASCADE');
 }

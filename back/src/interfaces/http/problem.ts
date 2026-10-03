@@ -5,7 +5,14 @@ export type ProblemCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'METHOD_NOT_ALLOWED'
+  | 'CONFLICT'
   | 'PAYLOAD_TOO_LARGE'
+  | 'INSUFFICIENT_POSITION'
+  | 'CURRENCY_MISMATCH'
+  | 'ACCOUNT_ARCHIVED'
+  | 'AUTOMATIC_MOVEMENT'
+  | 'NO_POSITION_FOR_DIVIDEND'
+  | 'INVALID_STATE'
   | 'INTERNAL_ERROR';
 
 export type FieldError = { field: string; message: string };
@@ -16,7 +23,9 @@ const TITLES: Record<number, string> = {
   403: 'Forbidden',
   404: 'Not Found',
   405: 'Method Not Allowed',
+  409: 'Conflict',
   413: 'Content Too Large',
+  422: 'Unprocessable Content',
   500: 'Internal Server Error',
 };
 

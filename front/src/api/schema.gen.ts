@@ -72,6 +72,312 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/markets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mercados disponibles (catálogo global, sembrado por migración) */
+        get: operations["listMarkets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/instruments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Instrumentos del catálogo global */
+        get: operations["listInstruments"];
+        put?: never;
+        post: operations["createInstrument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/instruments/{instrumentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getInstrument"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Símbolo, mercado y moneda no se pueden cambiar. */
+        patch: operations["updateInstrument"];
+        trace?: never;
+    };
+    "/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cuentas del usuario (sin paginar), con saldos de caja */
+        get: operations["listAccounts"];
+        put?: never;
+        post: operations["createAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/accounts/{accountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getAccount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description La moneda base no se puede cambiar. */
+        patch: operations["updateAccount"];
+        trace?: never;
+    };
+    "/trades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Operaciones de compra/venta, más recientes primero */
+        get: operations["listTrades"];
+        put?: never;
+        /** @description Crea la operación y, en la misma transacción, su movimiento de caja automático (TRADE). */
+        post: operations["createTrade"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/trades/{tradeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tradeId: components["parameters"]["TradeId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getTrade"];
+        /** @description Reemplaza todos los campos; recalcula su movimiento de caja. Se rechaza si deja una posición negativa en cualquier fecha. */
+        put: operations["replaceTrade"];
+        post?: never;
+        /** @description Elimina la operación y su movimiento de caja. Se rechaza si deja una posición negativa. */
+        delete: operations["deleteTrade"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dividends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dividendos ordenados por fecha de pago descendente */
+        get: operations["listDividends"];
+        put?: never;
+        /**
+         * @description Registra un dividendo. Si `status` = PAID crea en la misma transacción un movimiento de caja DIVIDEND por el neto.
+         *     Monto: se envía `grossAmount` **o** `perShare` (exactamente uno). Con `perShare`, la cantidad es `quantity` si viene,
+         *     si no la posición de esa cuenta al cierre de `exDate` (o de `paymentDate` si no hay exDate); bruto = perShare × cantidad.
+         *     Retención: `withholdingRate` si viene; si no, la del instrumento o, en su defecto, la del mercado.
+         */
+        post: operations["createDividend"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dividends/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dividendos de un año por instrumento y mes (equivalente a la tabla mensual del Excel)
+         * @description Agrupa por moneda original (la conversión a una moneda de reporte llega en Fase 2).
+         */
+        get: operations["getDividendSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dividends/{dividendId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dividendId: components["parameters"]["DividendId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getDividend"];
+        /** @description Reemplaza todos los campos (mismas reglas que crear). Crea, actualiza o elimina su movimiento de caja según el nuevo status. */
+        put: operations["replaceDividend"];
+        post?: never;
+        delete: operations["deleteDividend"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dividends/{dividendId}/mark-paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Atajo para pasar un dividendo ANNOUNCED a PAID (crea su movimiento de caja) */
+        post: operations["markDividendPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cash-movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Movimientos de caja (manuales y automáticos), más recientes primero */
+        get: operations["listCashMovements"];
+        put?: never;
+        /** @description Sólo tipos manuales DEPOSIT, WITHDRAWAL, FEE, INTEREST, ADJUSTMENT. Las transferencias/conversiones usan /cash-transfers. */
+        post: operations["createCashMovement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cash-movements/{movementId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                movementId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * @description Sólo movimientos manuales. Los automáticos (TRADE, DIVIDEND) se eliminan borrando su operación/dividendo → 422 AUTOMATIC_MOVEMENT.
+         *     Las patas de una transferencia se eliminan con DELETE /cash-transfers/{transferId} → 422 AUTOMATIC_MOVEMENT.
+         */
+        delete: operations["deleteCashMovement"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cash-transfers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transferencia entre cuentas propias y/o conversión de moneda
+         * @description Crea dos movimientos enlazados: TRANSFER_OUT (negativo) en origen y TRANSFER_IN (positivo) en destino.
+         *     Misma cuenta + distinta moneda = conversión (p. ej. CLP→USD en IB). Distinta cuenta = transferencia (con o sin conversión).
+         *     No son aportes: no cuentan como capital aportado.
+         */
+        post: operations["createCashTransfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cash-transfers/{transferId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteCashTransfer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/positions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Posiciones calculadas a partir de las operaciones y dividendos (no se guardan)
+         * @description Costo promedio ponderado; las comisiones e impuestos de compra forman parte del costo.
+         *     Una venta reduce cantidad y costo a costo promedio y genera ganancia realizada = neto de la venta − costo asignado.
+         *     Valor de mercado y rentabilidad no realizada llegan en Fase 3.
+         */
+        get: operations["listPositions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -93,6 +399,342 @@ export interface components {
             /** Format: email */
             email: string;
         };
+        /**
+         * @description Número decimal exacto como string. Ej. "1234.5", "-0.15", "331.794".
+         * @example 1234.56
+         */
+        Decimal: string;
+        /**
+         * Format: date
+         * @description Fecha de negocio YYYY-MM-DD
+         */
+        Date: string;
+        /**
+         * @description ISO 4217. Se amplía por contrato cuando haga falta.
+         * @enum {string}
+         */
+        Currency: "CLP" | "USD" | "EUR";
+        Money: {
+            amount: components["schemas"]["Decimal"];
+            currency: components["schemas"]["Currency"];
+        };
+        Market: {
+            /**
+             * @description Código MIC ISO 10383, salvo "US" que agrupa las bolsas de EE.UU.
+             * @example XSGO
+             */
+            code: string;
+            name: string;
+            /**
+             * @description ISO 3166-1 alpha-2
+             * @example CL
+             */
+            country: string;
+            currency: components["schemas"]["Currency"];
+            /** @example America/Santiago */
+            timezone: string;
+            /** @description Retención en origen sobre dividendos, fracción 0–1. CL "0", US "0.15". */
+            defaultWithholdingRate: components["schemas"]["Decimal"];
+        };
+        /** @enum {string} */
+        InstrumentType: "STOCK" | "ETF" | "FUND" | "REIT";
+        Instrument: {
+            /** Format: uuid */
+            id: string;
+            /** @example PEHUENCHE */
+            symbol: string;
+            marketCode: string;
+            name: string;
+            type: components["schemas"]["InstrumentType"];
+            currency: components["schemas"]["Currency"];
+            sector: string | null;
+            industry: string | null;
+            /** @description Override de retención; null = usa la del mercado */
+            withholdingRate: components["schemas"]["Decimal"] | null;
+            effectiveWithholdingRate: components["schemas"]["Decimal"];
+            /** @description Dividendo anual esperado por acción (manual */
+            annualDividendPerShare: components["schemas"]["Decimal"] | null;
+        };
+        InstrumentCreate: {
+            /** @description Se normaliza a mayúsculas */
+            symbol: string;
+            marketCode: string;
+            name: string;
+            type: components["schemas"]["InstrumentType"];
+            /** @description Default la moneda del mercado */
+            currency?: components["schemas"]["Currency"];
+            sector?: string | null;
+            industry?: string | null;
+            withholdingRate?: components["schemas"]["Decimal"] | null;
+            annualDividendPerShare?: components["schemas"]["Decimal"] | null;
+        };
+        InstrumentUpdate: {
+            name?: string;
+            type?: components["schemas"]["InstrumentType"];
+            sector?: string | null;
+            industry?: string | null;
+            withholdingRate?: components["schemas"]["Decimal"] | null;
+            annualDividendPerShare?: components["schemas"]["Decimal"] | null;
+        };
+        InstrumentPage: {
+            items: components["schemas"]["Instrument"][];
+            total: number;
+        };
+        Account: {
+            /** Format: uuid */
+            id: string;
+            /** @example Itaú Corredores */
+            name: string;
+            /** @example Itaú */
+            broker: string;
+            baseCurrency: components["schemas"]["Currency"];
+            archived: boolean;
+            /** @description Un saldo por cada moneda con movimientos (incluye la base aunque sea 0) */
+            cashBalances: components["schemas"]["Money"][];
+        };
+        AccountCreate: {
+            name: string;
+            broker: string;
+            baseCurrency: components["schemas"]["Currency"];
+        };
+        AccountUpdate: {
+            name?: string;
+            broker?: string;
+            archived?: boolean;
+        };
+        /**
+         * @description Manuales: DEPOSIT, WITHDRAWAL (aportes/retiros de capital externos), FEE, INTEREST, ADJUSTMENT.
+         *     Automáticos: TRADE (de una operación), DIVIDEND (de un dividendo PAID), TRANSFER_IN/OUT (de /cash-transfers).
+         * @enum {string}
+         */
+        CashMovementType: "DEPOSIT" | "WITHDRAWAL" | "FEE" | "INTEREST" | "ADJUSTMENT" | "TRADE" | "DIVIDEND" | "TRANSFER_IN" | "TRANSFER_OUT";
+        CashMovement: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            accountId: string;
+            date: components["schemas"]["Date"];
+            type: components["schemas"]["CashMovementType"];
+            /** @description Con signo; positivo entra caja */
+            amount: components["schemas"]["Decimal"];
+            currency: components["schemas"]["Currency"];
+            description: string | null;
+            /**
+             * @description IMPORT = creado por la importación inicial (p. ej. aportes inferidos)
+             * @enum {string}
+             */
+            source: "MANUAL" | "AUTOMATIC" | "IMPORT";
+            /** Format: uuid */
+            tradeId: string | null;
+            /** Format: uuid */
+            dividendId: string | null;
+            /** Format: uuid */
+            transferId: string | null;
+        };
+        CashMovementInput: {
+            /** Format: uuid */
+            accountId: string;
+            date: components["schemas"]["Date"];
+            /** @enum {string} */
+            type: "DEPOSIT" | "WITHDRAWAL" | "FEE" | "INTEREST" | "ADJUSTMENT";
+            /** @description Positivo. El signo lo define el tipo (WITHDRAWAL y FEE restan; ADJUSTMENT acepta signo) */
+            amount: components["schemas"]["Decimal"];
+            currency: components["schemas"]["Currency"];
+            description?: string | null;
+        };
+        CashMovementPage: {
+            items: components["schemas"]["CashMovement"][];
+            total: number;
+        };
+        CashTransferInput: {
+            date: components["schemas"]["Date"];
+            /** Format: uuid */
+            fromAccountId: string;
+            /** @description Positivo */
+            fromAmount: components["schemas"]["Decimal"];
+            fromCurrency: components["schemas"]["Currency"];
+            /** Format: uuid */
+            toAccountId: string;
+            /** @description Positivo */
+            toAmount: components["schemas"]["Decimal"];
+            toCurrency: components["schemas"]["Currency"];
+            description?: string | null;
+        };
+        CashTransfer: {
+            /** Format: uuid */
+            id: string;
+            date: components["schemas"]["Date"];
+            out: components["schemas"]["CashMovement"];
+            in: components["schemas"]["CashMovement"];
+            /** @description toAmount / fromAmount (1 si es la misma moneda) */
+            rate: components["schemas"]["Decimal"];
+        };
+        /** @enum {string} */
+        TradeSide: "BUY" | "SELL";
+        TradeInput: {
+            /** Format: uuid */
+            accountId: string;
+            /** Format: uuid */
+            instrumentId: string;
+            side: components["schemas"]["TradeSide"];
+            tradeDate: components["schemas"]["Date"];
+            /** @description > 0; admite fracciones */
+            quantity: components["schemas"]["Decimal"];
+            /** @description > 0, por unidad, en la moneda del instrumento */
+            price: components["schemas"]["Decimal"];
+            /** @description >= 0, default "0" */
+            commission?: components["schemas"]["Decimal"];
+            /** @description >= 0, monto (no tasa) del impuesto sobre la comisión (IVA en Chile), default "0" */
+            commissionTax?: components["schemas"]["Decimal"];
+            /**
+             * @description Marca de dato incompleto/aproximado que el usuario debe revisar (p. ej. ventas importadas al costo)
+             * @default false
+             */
+            needsReview: boolean;
+            notes?: string | null;
+        };
+        Trade: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            accountId: string;
+            /** Format: uuid */
+            instrumentId: string;
+            symbol: string;
+            side: components["schemas"]["TradeSide"];
+            tradeDate: components["schemas"]["Date"];
+            quantity: components["schemas"]["Decimal"];
+            price: components["schemas"]["Decimal"];
+            commission: components["schemas"]["Decimal"];
+            commissionTax: components["schemas"]["Decimal"];
+            /** @description La del instrumento */
+            currency: components["schemas"]["Currency"];
+            /** @description quantity × price */
+            grossAmount: components["schemas"]["Decimal"];
+            /** @description BUY: bruto + comisión + impuesto (sale de caja). SELL: bruto − comisión − impuesto (entra a caja). */
+            total: components["schemas"]["Decimal"];
+            needsReview: boolean;
+            notes: string | null;
+        };
+        TradePage: {
+            items: components["schemas"]["Trade"][];
+            total: number;
+        };
+        /** @enum {string} */
+        DividendStatus: "ANNOUNCED" | "PAID";
+        /**
+         * @description Chile: PROVISIONAL (provisorio), FINAL (definitivo), ADDITIONAL (adicional/eventual). EE.UU./Europa: REGULAR, SPECIAL. OTHER = sin clasificar.
+         * @enum {string}
+         */
+        DividendKind: "REGULAR" | "PROVISIONAL" | "FINAL" | "ADDITIONAL" | "SPECIAL" | "OTHER";
+        DividendInput: {
+            /** Format: uuid */
+            accountId: string;
+            /** Format: uuid */
+            instrumentId: string;
+            status: components["schemas"]["DividendStatus"];
+            kind: components["schemas"]["DividendKind"];
+            exDate?: components["schemas"]["Date"] | null;
+            paymentDate: components["schemas"]["Date"];
+            /** @description Excluyente con perShare */
+            grossAmount?: components["schemas"]["Decimal"];
+            /** @description Excluyente con grossAmount */
+            perShare?: components["schemas"]["Decimal"];
+            /** @description Sólo junto a perShare; si falta se usa la posición */
+            quantity?: components["schemas"]["Decimal"];
+            /** @description Fracción 0–1; default la efectiva del instrumento */
+            withholdingRate?: components["schemas"]["Decimal"];
+            /** @description Opcional (v0.2.1). Neto efectivamente recibido. Si viene: retención = bruto − neto (sin redondear) y se conserva la tasa nominal, igual que mark-paid. Debe cumplir 0 ≤ neto ≤ bruto; si no, 400. Si no viene, retención = round(bruto × tasa). */
+            netAmount?: components["schemas"]["Decimal"];
+            notes?: string | null;
+        };
+        Dividend: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            accountId: string;
+            /** Format: uuid */
+            instrumentId: string;
+            symbol: string;
+            status: components["schemas"]["DividendStatus"];
+            kind: components["schemas"]["DividendKind"];
+            exDate: components["schemas"]["Date"] | null;
+            paymentDate: components["schemas"]["Date"];
+            /** @description La del instrumento */
+            currency: components["schemas"]["Currency"];
+            perShare: components["schemas"]["Decimal"] | null;
+            quantity: components["schemas"]["Decimal"] | null;
+            grossAmount: components["schemas"]["Decimal"];
+            withholdingRate: components["schemas"]["Decimal"];
+            /** @description bruto × tasa, redondeado a la moneda (CLP 0 decimales, USD/EUR 2) */
+            withholdingAmount: components["schemas"]["Decimal"];
+            /** @description bruto − retención */
+            netAmount: components["schemas"]["Decimal"];
+            /**
+             * Format: uuid
+             * @description Sólo si PAID
+             */
+            cashMovementId: string | null;
+            notes: string | null;
+        };
+        DividendPage: {
+            items: components["schemas"]["Dividend"][];
+            total: number;
+        };
+        DividendSummary: {
+            year: number;
+            /** @description Un grupo por moneda */
+            groups: {
+                currency: components["schemas"]["Currency"];
+                rows: {
+                    /** Format: uuid */
+                    instrumentId: string;
+                    symbol: string;
+                    /** @description Índice 0 = enero */
+                    monthlyGross: components["schemas"]["Decimal"][];
+                    monthlyNet: components["schemas"]["Decimal"][];
+                    totalGross: components["schemas"]["Decimal"];
+                    totalNet: components["schemas"]["Decimal"];
+                }[];
+                monthlyGross: components["schemas"]["Decimal"][];
+                monthlyNet: components["schemas"]["Decimal"][];
+                totalGross: components["schemas"]["Decimal"];
+                totalNet: components["schemas"]["Decimal"];
+            }[];
+        };
+        Position: {
+            /**
+             * Format: uuid
+             * @description null cuando groupBy=instrument
+             */
+            accountId: string | null;
+            /** Format: uuid */
+            instrumentId: string;
+            symbol: string;
+            name: string;
+            marketCode: string;
+            type: components["schemas"]["InstrumentType"];
+            sector: string | null;
+            currency: components["schemas"]["Currency"];
+            quantity: components["schemas"]["Decimal"];
+            /** @description Costo por unidad incluyendo comisiones */
+            averageCost: components["schemas"]["Decimal"];
+            /** @description quantity × averageCost (monto invertido vigente) */
+            costBasis: components["schemas"]["Decimal"];
+            /** @description Acumulada por ventas */
+            realizedGain: components["schemas"]["Decimal"];
+            /** @description Dividendos PAID cobrados (histórico total) */
+            dividendsGross: components["schemas"]["Decimal"];
+            dividendsNet: components["schemas"]["Decimal"];
+            annualDividendPerShare: components["schemas"]["Decimal"] | null;
+            /** @description quantity × annualDividendPerShare */
+            expectedAnnualIncomeGross: components["schemas"]["Decimal"] | null;
+            /** @description annualDividendPerShare / averageCost */
+            yieldOnCost: components["schemas"]["Decimal"] | null;
+            firstTradeDate: components["schemas"]["Date"];
+            /** @description Meses con dividendos PAID en los últimos 12 meses (equivale a "Meses de pago" del Excel) */
+            paymentMonths: number[];
+        };
         /** @description RFC 9457 Problem Details + `code` estable para que el front decida. */
         Problem: {
             /** @default about:blank */
@@ -102,10 +744,17 @@ export interface components {
             detail?: string;
             /**
              * @description 400 VALIDATION_ERROR · 401 INVALID_CREDENTIALS | UNAUTHENTICATED · 403 FORBIDDEN · 404 NOT_FOUND ·
-             *     405 METHOD_NOT_ALLOWED (con cabecera Allow) · 413 PAYLOAD_TOO_LARGE · 500 INTERNAL_ERROR
+             *     405 METHOD_NOT_ALLOWED (con cabecera Allow) · 409 CONFLICT · 413 PAYLOAD_TOO_LARGE · 500 INTERNAL_ERROR ·
+             *     422 reglas de negocio:
+             *       INSUFFICIENT_POSITION (venta/edición/borrado deja posición negativa en alguna fecha),
+             *       CURRENCY_MISMATCH (moneda que no corresponde, p. ej. transferencia con moneda distinta de la indicada),
+             *       ACCOUNT_ARCHIVED (movimientos nuevos en cuenta archivada),
+             *       AUTOMATIC_MOVEMENT (borrar directamente un movimiento automático),
+             *       NO_POSITION_FOR_DIVIDEND (perShare sin quantity y sin posición en la fecha),
+             *       INVALID_STATE (p. ej. mark-paid sobre un dividendo ya PAID).
              * @enum {string}
              */
-            code: "VALIDATION_ERROR" | "INVALID_CREDENTIALS" | "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND" | "METHOD_NOT_ALLOWED" | "PAYLOAD_TOO_LARGE" | "INTERNAL_ERROR";
+            code: "VALIDATION_ERROR" | "INVALID_CREDENTIALS" | "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND" | "METHOD_NOT_ALLOWED" | "CONFLICT" | "PAYLOAD_TOO_LARGE" | "INSUFFICIENT_POSITION" | "CURRENCY_MISMATCH" | "ACCOUNT_ARCHIVED" | "AUTOMATIC_MOVEMENT" | "NO_POSITION_FOR_DIVIDEND" | "INVALID_STATE" | "INTERNAL_ERROR";
             /** @description Sólo en VALIDATION_ERROR */
             errors?: {
                 field: string;
@@ -114,7 +763,7 @@ export interface components {
         };
     };
     responses: {
-        /** @description Cuerpo inválido */
+        /** @description Cuerpo o parámetros inválidos */
         ValidationError: {
             headers: {
                 [name: string]: unknown;
@@ -149,8 +798,39 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description No existe o pertenece a otro usuario */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Viola una regla de negocio (ver códigos 422 en Problem.code) */
+        BusinessRule: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
     };
-    parameters: never;
+    parameters: {
+        Limit: number;
+        Offset: number;
+        /** @description Fecha mínima inclusiva */
+        From: components["schemas"]["Date"];
+        /** @description Fecha máxima inclusiva */
+        To: components["schemas"]["Date"];
+        AccountIdQuery: string;
+        InstrumentIdQuery: string;
+        AccountId: string;
+        InstrumentId: string;
+        TradeId: string;
+        DividendId: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -292,6 +972,776 @@ export interface operations {
                     "application/json": components["schemas"]["User"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listMarkets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Lista completa (sin paginar) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Market"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listInstruments: {
+        parameters: {
+            query?: {
+                /** @description Busca en símbolo y nombre (sin distinguir mayúsculas) */
+                q?: string;
+                marketCode?: string;
+                limit?: components["parameters"]["Limit"];
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Página de instrumentos ordenados por símbolo */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createInstrument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstrumentCreate"];
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Instrument"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Ya existe ese símbolo en ese mercado (code CONFLICT) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    getInstrument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Instrumento */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Instrument"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateInstrument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstrumentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Actualizado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Instrument"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cuentas ordenadas por nombre */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Account"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Ya existe una cuenta con ese nombre (code CONFLICT) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cuenta con saldos */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accountId: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountUpdate"];
+            };
+        };
+        responses: {
+            /** @description Actualizada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Nombre duplicado (code CONFLICT) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listTrades: {
+        parameters: {
+            query?: {
+                accountId?: components["parameters"]["AccountIdQuery"];
+                instrumentId?: components["parameters"]["InstrumentIdQuery"];
+                /** @description Fecha mínima inclusiva */
+                from?: components["parameters"]["From"];
+                /** @description Fecha máxima inclusiva */
+                to?: components["parameters"]["To"];
+                needsReview?: boolean;
+                limit?: components["parameters"]["Limit"];
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Página de operaciones */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradePage"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createTrade: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeInput"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Trade"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    getTrade: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tradeId: components["parameters"]["TradeId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operación */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Trade"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    replaceTrade: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tradeId: components["parameters"]["TradeId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeInput"];
+            };
+        };
+        responses: {
+            /** @description Actualizada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Trade"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    deleteTrade: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tradeId: components["parameters"]["TradeId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminada */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    listDividends: {
+        parameters: {
+            query?: {
+                accountId?: components["parameters"]["AccountIdQuery"];
+                instrumentId?: components["parameters"]["InstrumentIdQuery"];
+                status?: components["schemas"]["DividendStatus"];
+                /** @description Fecha mínima inclusiva */
+                from?: components["parameters"]["From"];
+                /** @description Fecha máxima inclusiva */
+                to?: components["parameters"]["To"];
+                limit?: components["parameters"]["Limit"];
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Página de dividendos */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DividendPage"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createDividend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DividendInput"];
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dividend"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    getDividendSummary: {
+        parameters: {
+            query: {
+                year: number;
+                /** @description Si se omite incluye ambos */
+                status?: components["schemas"]["DividendStatus"];
+                accountId?: components["parameters"]["AccountIdQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resumen */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DividendSummary"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getDividend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dividendId: components["parameters"]["DividendId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dividendo */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dividend"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    replaceDividend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dividendId: components["parameters"]["DividendId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DividendInput"];
+            };
+        };
+        responses: {
+            /** @description Actualizado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dividend"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    deleteDividend: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dividendId: components["parameters"]["DividendId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminado (junto con su movimiento de caja si existía) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    markDividendPaid: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dividendId: components["parameters"]["DividendId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    paymentDate?: components["schemas"]["Date"];
+                    /** @description Si el neto recibido difiere del calculado; se ajusta la retención (bruto se mantiene). */
+                    netAmount?: components["schemas"]["Decimal"];
+                };
+            };
+        };
+        responses: {
+            /** @description Dividendo pagado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dividend"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    listCashMovements: {
+        parameters: {
+            query?: {
+                accountId?: components["parameters"]["AccountIdQuery"];
+                currency?: components["schemas"]["Currency"];
+                type?: components["schemas"]["CashMovementType"];
+                /** @description Fecha mínima inclusiva */
+                from?: components["parameters"]["From"];
+                /** @description Fecha máxima inclusiva */
+                to?: components["parameters"]["To"];
+                limit?: components["parameters"]["Limit"];
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Página de movimientos */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CashMovementPage"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createCashMovement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CashMovementInput"];
+            };
+        };
+        responses: {
+            /** @description Creado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CashMovement"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteCashMovement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                movementId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    createCashTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CashTransferInput"];
+            };
+        };
+        responses: {
+            /** @description Creada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CashTransfer"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    deleteCashTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                transferId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminada (ambas patas) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPositions: {
+        parameters: {
+            query?: {
+                /** @description instrument: una fila por instrumento (suma todas las cuentas); account: una fila por cuenta+instrumento */
+                groupBy?: "instrument" | "account";
+                accountId?: components["parameters"]["AccountIdQuery"];
+                /** @description Incluir posiciones con cantidad 0 */
+                includeClosed?: boolean;
+                /** @description Fecha de corte (default hoy) */
+                asOf?: components["schemas"]["Date"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Posiciones ordenadas por moneda y símbolo */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Position"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
         };
     };

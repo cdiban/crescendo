@@ -27,7 +27,7 @@ export function Login({ api, onLoggedIn }: Props) {
   }
 
   return (
-    <main className="card">
+    <main className="card login">
       <h1>Crescendo</h1>
       <form onSubmit={handleSubmit} aria-busy={submitting}>
         <label htmlFor="email">Email</label>

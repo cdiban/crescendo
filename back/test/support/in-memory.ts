@@ -79,4 +79,8 @@ export class FixedClock implements Clock {
   now(): Date {
     return new Date(this.current);
   }
+
+  today(): string {
+    return this.current.toISOString().slice(0, 10);
+  }
 }

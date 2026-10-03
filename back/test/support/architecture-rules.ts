@@ -9,12 +9,12 @@ const COMPOSITION_ROOT = 'composition.ts';
 /**
  * Excepción explícita (aprobada por el orquestador): los puntos de entrada
  * ejecutables son los "main" de la capa más externa y pueden importar la
- * composition root para recibir los casos de uso ya armados. El CLI vive en
- * interfaces/cli/ porque el comando acordado es
- * `node src/interfaces/cli/create-user.ts`; el resto de interfaces/ sigue sin
+ * composition root para recibir los casos de uso ya armados. Los CLI viven en
+ * interfaces/cli/ porque los comandos acordados son `node src/interfaces/cli/<cmd>.ts`;
+ * el resto de interfaces/ sigue sin
  * poder llegar a infrastructure/ ni a composition.ts.
  */
-const ENTRYPOINTS = new Set(['main.ts', 'interfaces/cli/create-user.ts']);
+const ENTRYPOINTS = new Set(['main.ts', 'interfaces/cli/create-user.ts', 'interfaces/cli/import-bundle.ts']);
 const PERSISTENCE_PACKAGES = new Set(['typeorm', 'pg']);
 
 const ALLOWED_INTERNAL: Record<Layer, ReadonlySet<Layer>> = {

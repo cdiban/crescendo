@@ -1,15 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { Api, Health, User } from '../api/client.ts';
+import { Link } from '../router.tsx';
 
 type Props = {
   api: Api;
   user: User;
   onLoggedOut: () => void;
+  children: ReactNode;
 };
 
 type HealthState = { kind: 'loading' } | { kind: 'loaded'; health: Health } | { kind: 'unavailable' };
 
-export function Home({ api, user, onLoggedOut }: Props) {
+export const SECTIONS = [
+  { path: '/posiciones', label: 'Posiciones' },
+  { path: '/dividendos', label: 'Dividendos' },
+  { path: '/operaciones', label: 'Operaciones' },
+  { path: '/caja', label: 'Caja' },
+  { path: '/configuracion', label: 'Configuración' },
+] as const;
+
+export function Layout({ api, user, onLoggedOut, children }: Props) {
   const [health, setHealth] = useState<HealthState>({ kind: 'loading' });
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,23 +48,33 @@ export function Home({ api, user, onLoggedOut }: Props) {
   }
 
   return (
-    <main className="card">
-      <h1>Crescendo</h1>
-      <p>
-        Sesión iniciada como <strong>{user.email}</strong>
-      </p>
-      <p className="status" aria-live="polite">
-        {healthText(health)}
-      </p>
+    <div className="app">
+      <header className="topbar">
+        <span className="brand">Crescendo</span>
+        <nav aria-label="Principal">
+          {SECTIONS.map((s) => (
+            <Link key={s.path} to={s.path}>
+              {s.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="user">
+          <span className="muted">{user.email}</span>
+          <button type="button" className="secondary" onClick={handleLogout} disabled={loggingOut}>
+            Cerrar sesión
+          </button>
+        </div>
+      </header>
       {error && (
-        <p role="alert" className="error">
+        <p role="alert" className="error page-error">
           {error}
         </p>
       )}
-      <button type="button" onClick={handleLogout} disabled={loggingOut}>
-        Cerrar sesión
-      </button>
-    </main>
+      <main className="content">{children}</main>
+      <footer className="status muted" aria-live="polite">
+        {healthText(health)}
+      </footer>
+    </div>
   );
 }
 

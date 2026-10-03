@@ -87,3 +87,49 @@ describe('cliente API', () => {
     await expect(createApi().getHealth()).resolves.toEqual({ status: 'degraded', db: 'down' });
   });
 });
+
+describe('cliente API — endpoints de Fase 1', () => {
+  it('serializa la query omitiendo vacíos y convierte booleanos', async () => {
+    const fetchMock = mockFetch([{ method: 'GET', path: '/api/v1/trades', status: 200, body: { items: [], total: 0 } }]);
+
+    await createApi().listTrades({ accountId: 'a1', needsReview: true, instrumentId: undefined, from: '' as never, limit: 50 });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/v1/trades?accountId=a1&needsReview=true&limit=50');
+  });
+
+  it('usa PATCH, PUT y DELETE con Content-Type JSON', async () => {
+    const fetchMock = mockFetch([
+      { method: 'PATCH', path: '/api/v1/accounts/a1', status: 200, body: { id: 'a1' } },
+      { method: 'PUT', path: '/api/v1/trades/t1', status: 200, body: { id: 't1' } },
+      { method: 'DELETE', path: '/api/v1/trades/t1', status: 204 },
+    ]);
+    const api = createApi();
+
+    await api.updateAccount('a1', { archived: true });
+    await api.replaceTrade('t1', { accountId: 'a1', instrumentId: 'i1', side: 'BUY', tradeDate: '2026-01-02', quantity: '1', price: '10', needsReview: false });
+    await api.deleteTrade('t1');
+
+    expect(fetchMock.mock.calls.map(([, init]) => [init?.method, new Headers(init?.headers).get('Content-Type')])).toEqual([
+      ['PATCH', 'application/json'],
+      ['PUT', 'application/json'],
+      ['DELETE', 'application/json'],
+    ]);
+    expect(fetchMock.mock.calls[0]![1]?.body).toBe('{"archived":true}');
+  });
+
+  it('codifica los ids en la ruta', async () => {
+    const fetchMock = mockFetch([{ method: 'POST', path: '/api/v1/dividends/a%2Fb/mark-paid', status: 200, body: {} }]);
+
+    await createApi().markDividendPaid('a/b', {});
+
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/v1/dividends/a%2Fb/mark-paid');
+  });
+
+  it('getDividendSummary envía el año requerido', async () => {
+    const fetchMock = mockFetch([{ method: 'GET', path: '/api/v1/dividends/summary', status: 200, body: { year: 2026, groups: [] } }]);
+
+    await createApi().getDividendSummary({ year: 2026, status: 'PAID' });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/v1/dividends/summary?year=2026&status=PAID');
+  });
+});
