@@ -153,18 +153,20 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
             <p className="text-xs text-muted-foreground">Tipos de cambio al {formatDate(data.fxAsOf)}</p>
           </div>
           <StatStrip
+            collapsibleOnMobile
             items={[
-              { label: 'Valor de mercado', value: orDash(data.total.marketValue, (v) => formatMoney(v, data.total.currency)) },
+              { label: 'Valor de mercado', primary: true, value: orDash(data.total.marketValue, (v) => formatMoney(v, data.total.currency)) },
               {
                 label: 'No realizada',
                 title: 'Ganancia no realizada',
+                primary: true,
                 value: orDash(data.total.unrealizedGain, (v) => <Signed amount={v} currency={data.total.currency} colorPositive />),
               },
               {
                 label: 'Efecto precio',
                 value: orDash(data.total.priceEffect, (v) => <Signed amount={v} currency={data.total.currency} colorPositive />),
               },
-              { label: 'Efecto cambiario', value: <Signed amount={data.total.fxEffect} currency={data.total.currency} colorPositive /> },
+              { label: 'Efecto cambiario', primary: true, value: <Signed amount={data.total.fxEffect} currency={data.total.currency} colorPositive /> },
               {
                 label: 'Costo histórico',
                 title: 'Costo vigente a los tipos de cambio de cada compra',

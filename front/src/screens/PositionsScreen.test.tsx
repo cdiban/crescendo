@@ -137,6 +137,19 @@ describe('PositionsScreen', () => {
     expect(within(total).getByText('US$-12,62').className).toMatch(/negative/);
   });
 
+  it('en móvil la franja total es plegable: muestra valor de mercado, no realizada y efecto cambiario, y "Ver más" el resto', async () => {
+    mockFetch([
+      { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+      { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList() },
+    ]);
+    render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
+    const total = await screen.findByRole('region', { name: 'Total en USD' });
+    const secondary = [...total.querySelectorAll('dt')].filter((dt) => /max-md:hidden/.test(dt.parentElement!.className)).map((dt) => dt.textContent);
+    expect(secondary).toEqual(['Efecto precio', 'Costo histórico', 'Costo a TC actual', 'Realizada', 'Dividendos', 'Ingreso anual']);
+    fireEvent.click(within(total).getByRole('button', { name: 'Ver más' }));
+    expect(within(total).getByRole('button', { name: 'Ver menos' }).getAttribute('aria-expanded')).toBe('true');
+  });
+
   it('sin "Incluir cerradas" aclara que los totales no traen la ganancia realizada de las cerradas', async () => {
     mockFetch([
       { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },

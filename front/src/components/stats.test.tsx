@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { DefinitionList, StatStrip } from './stats.tsx';
 
 describe('DefinitionList', () => {
@@ -46,5 +46,44 @@ describe('StatStrip', () => {
     expect(dt.getAttribute('title')).toBe('Ganancia no realizada');
     expect(dt.className).toMatch(/truncate/);
     expect(dt.nextElementSibling?.textContent).toBe('US$83,08');
+  });
+});
+
+describe('StatStrip plegable en móvil', () => {
+  const items = [
+    { label: 'Valor de mercado', value: '1', primary: true },
+    { label: 'No realizada', value: '2', primary: true },
+    { label: 'Efecto precio', value: '3' },
+    { label: 'Efecto cambiario', value: '4', primary: true },
+    { label: 'Dividendos', value: '5' },
+  ];
+  const item = (label: string) => screen.getByText(label).parentElement!;
+
+  it('plegada: en móvil oculta los secundarios (sólo bajo md) y el botón "Ver más" indica aria-expanded=false', () => {
+    render(<StatStrip label="Total en USD" items={items} collapsibleOnMobile />);
+    const button = screen.getByRole('button', { name: 'Ver más' });
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(button.className).toMatch(/md:hidden/);
+    expect(button.getAttribute('aria-controls')).toBe(screen.getByLabelText('Total en USD').id);
+    for (const l of ['Efecto precio', 'Dividendos']) expect(item(l).className).toMatch(/max-md:hidden/);
+    for (const l of ['Valor de mercado', 'No realizada', 'Efecto cambiario']) expect(item(l).className).not.toMatch(/hidden/);
+  });
+
+  it('"Ver más" despliega todo y cambia a "Ver menos"; "Ver menos" vuelve a plegar', () => {
+    render(<StatStrip label="Total en USD" items={items} collapsibleOnMobile />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ver más' }));
+    const button = screen.getByRole('button', { name: 'Ver menos' });
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    for (const l of ['Efecto precio', 'Dividendos']) expect(item(l).className).not.toMatch(/hidden/);
+
+    fireEvent.click(button);
+    expect(screen.getByRole('button', { name: 'Ver más' }).getAttribute('aria-expanded')).toBe('false');
+    expect(item('Dividendos').className).toMatch(/max-md:hidden/);
+  });
+
+  it('sin collapsibleOnMobile no hay botón ni ítems ocultos', () => {
+    render(<StatStrip label="Total" items={items} />);
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(item('Dividendos').className).not.toMatch(/hidden/);
   });
 });
