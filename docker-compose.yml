@@ -44,6 +44,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:?definir en .env}
       FX_BACKFILL_FROM: ${FX_BACKFILL_FROM:-2024-01-01}
       FX_SYNC_INTERVAL_MINUTES: ${FX_SYNC_INTERVAL_MINUTES:-360}
+      QUOTES_INTERVAL_MINUTES: ${QUOTES_INTERVAL_MINUTES:-5}
     # El HEALTHCHECK de la imagen consulta el HTTP de la API; el worker no expone HTTP.
     healthcheck:
       disable: true

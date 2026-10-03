@@ -5,6 +5,8 @@ import { CheckHealth } from './application/use-cases/check-health.ts';
 import { Dividends } from './application/use-cases/dividends.ts';
 import { FxRates } from './application/use-cases/fx-rates.ts';
 import { Preferences } from './application/use-cases/preferences.ts';
+import { Prices } from './application/use-cases/prices.ts';
+import { SyncPrices } from './application/use-cases/sync-prices.ts';
 import { SyncFx } from './application/use-cases/sync-fx.ts';
 import { ImportBundle } from './application/use-cases/import-bundle.ts';
 import { Portfolio } from './application/use-cases/portfolio.ts';
@@ -16,6 +18,7 @@ import { Logout } from './application/use-cases/logout.ts';
 import { loadConfig, type Config } from './infrastructure/config.ts';
 import { CryptoIdGenerator } from './infrastructure/crypto-id-generator.ts';
 import { MindicadorFxRateProvider } from './infrastructure/fx/mindicador-fx-rate-provider.ts';
+import { YahooMarketDataProvider } from './infrastructure/market/yahoo-market-data-provider.ts';
 import { createDataSource } from './infrastructure/persistence/data-source.ts';
 import { TypeOrmUnitOfWork } from './infrastructure/persistence/typeorm-unit-of-work.ts';
 import { TypeOrmDatabaseHealth } from './infrastructure/persistence/typeorm-database-health.ts';
@@ -66,6 +69,15 @@ export function buildContainer(config: Pick<Config, 'databaseUrl' | 'sessionTtlH
       fxRates: new FxRates({ uow, clock }),
       // La API nunca lo usa: sólo el worker y la CLI sync-fx llaman a la fuente externa.
       syncFx: new SyncFx({ uow, provider: new MindicadorFxRateProvider(), clock, log }),
+      prices: new Prices({ uow }),
+      // Igual que syncFx: sólo el worker y la CLI sync-prices salen a internet.
+      syncPrices: new SyncPrices({
+        uow,
+        provider: new YahooMarketDataProvider(),
+        now: () => clock.now(),
+        log,
+        pause: (ms) => new Promise((r) => setTimeout(r, ms)),
+      }),
     },
     uow,
     /**

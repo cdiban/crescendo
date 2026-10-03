@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import { SummaryScreen } from './SummaryScreen.tsx';
 import { createApi } from '../api/client.ts';
 import { calls, mockFetch, problem } from '../test/http.ts';
@@ -19,12 +19,69 @@ describe('SummaryScreen', () => {
 
     await screen.findByRole('region', { name: 'Capital aportado' });
     expect(calls(fetchMock)).toContain('GET /api/v1/portfolio/summary?reportingCurrency=USD');
-    expect(text(screen.getByText(/Datos al/))).toBe('Datos al 03-10-2026 · tipos de cambio al 02-10-2026 · en USD');
+    expect(text(screen.getByText(/Datos al/))).toMatch(/^Datos al 03-10-2026 · precios al 03-10-2026 \d\d:\d\d · tipos de cambio al 02-10-2026 · en USD$/);
 
     expect(text(card('Capital aportado'))).toMatch(/US\$61\.234,57/);
     expect(text(card('Costo invertido'))).toMatch(/US\$62\.000,12.*A tipo de cambio actual: US\$60\.500,50/);
     expect(text(card('Caja'))).toMatch(/US\$3\.434,10/);
     expect(text(card('Ganancia realizada'))).toMatch(/US\$204,10/);
+  });
+
+  it('muestra patrimonio, valor de mercado, ganancia no realizada desglosada y ganancia total vs capital aportado', async () => {
+    mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+
+    expect(text(await screen.findByRole('region', { name: 'Patrimonio' }))).toMatch(/US\$67\.434,60.*Valor de mercado US\$64\.000,50 \+ caja US\$3\.434,10/);
+    const unrealized = card('Ganancia no realizada');
+    expect(within(unrealized).getByText('US$2.000,76').dataset.tone).toBe('positive');
+    expect(text(unrealized)).toMatch(/Por precioUS\$3\.500,38.*Por tipo de cambioUS\$-1\.499,62/);
+    const total = card('Ganancia total');
+    expect(within(total).getByText('US$6.200,03').dataset.tone).toBe('positive');
+    expect(text(total)).toMatch(/Patrimonio − capital aportado \(US\$61\.234,57\)/);
+  });
+
+  it('muestra el yield actual entre los dividendos y la fecha de los precios', async () => {
+    mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    const div = await screen.findByRole('region', { name: 'Dividendos' });
+    expect(text(div)).toMatch(/Yield actual4,84%/);
+    expect(text(screen.getByText(/Datos al/))).toMatch(/precios al 03-10-2026/);
+  });
+
+  it('avisa si no todas las posiciones tienen precio', async () => {
+    mockFetch(routes(portfolioSummary({ pricedCoverage: '0.9132' })));
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    expect((await screen.findByRole('note')).textContent).toMatch(/91,32% del costo invertido tiene precio/);
+  });
+
+  it('con cobertura completa no muestra el aviso', async () => {
+    mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    await screen.findByRole('region', { name: 'Patrimonio' });
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('se actualiza cada 60 s sin volver al estado de carga', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetchMock = mockFetch([
+        { method: 'GET', path: '/api/v1/portfolio/summary', status: 200, body: portfolioSummary() },
+        { method: 'GET', path: '/api/v1/portfolio/summary', status: 200, body: portfolioSummary({ netWorth: '70000' }) },
+        routes()[1]!,
+      ]);
+      render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+      await screen.findByText('US$67.434,60');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      expect(await screen.findByText('US$70.000,00')).toBeTruthy();
+      expect(calls(fetchMock).filter((c) => c.startsWith('GET /api/v1/portfolio/summary'))).toHaveLength(2);
+      expect(screen.queryByText('Cargando…')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('el efecto cambiario muestra posiciones, caja y total con color por signo', async () => {

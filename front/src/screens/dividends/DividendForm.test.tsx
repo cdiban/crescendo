@@ -38,7 +38,7 @@ describe('DividendForm', () => {
     expect(options.map((o) => o.textContent)).toEqual([
       'PEHUENCHE · XSGOPehuenche — 115 acciones',
       'KO · USCoca-Cola — 10,5 acciones',
-      'BITO · USBITO — 3 acciones',
+      'BITO · US3 acciones',
     ]);
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { PositionsScreen } from './PositionsScreen.tsx';
 import { createApi } from '../api/client.ts';
 import { calls, mockFetch } from '../test/http.ts';
@@ -20,12 +20,72 @@ describe('PositionsScreen', () => {
     expect(calls(fetchMock)).toContain('GET /api/v1/positions?groupBy=instrument&reportingCurrency=USD');
 
     const headers = within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('columnheader').map((h) => h.textContent);
-    expect(headers).toEqual(['Instrumento', 'Cantidad', 'Costo promedio', 'Invertido', 'Costo en USD', 'Efecto cambiario (USD)', 'Ganancia realizada', 'Div. cobrados (neto)', 'Ingreso anual esperado', 'Yield on cost', 'Meses de pago']);
+    expect(headers).toEqual([
+      'Instrumento', 'Cantidad', 'Precio', 'Var. día', 'Valor de mercado', 'Ganancia no realizada', 'Rentabilidad total', 'Yield actual',
+      'Valor en USD', 'Efecto precio (USD)', 'Efecto cambiario (USD)',
+      'Costo promedio', 'Invertido', 'Costo en USD', 'Ganancia realizada', 'Div. cobrados (neto)', 'Ingreso anual esperado', 'Yield on cost', 'Meses de pago',
+    ]);
 
-    expect(text(within(clp).getByRole('row', { name: /PEHUENCHE/ }))).toBe('PEHUENCHEPehuenche115$2.607,8$299.897US$318,12US$-12,62$0$93.178$30.59010,2%may, dic');
-    expect(text(within(usd).getByRole('row', { name: /KO/ }))).toBe('KOCoca-Cola10,5US$60,1234US$631,30US$631,30US$0,00US$0,00US$17,34US$21,423,39%abr, jul, oct, dic');
-    expect(text(within(usd).getByRole('row', { name: /BITO/ }))).toBe('BITOBITO3US$20,00US$60,00US$60,00US$0,00US$0,00US$0,00——Sin pagos');
-    expect(within(within(clp).getByRole('row', { name: /PEHUENCHE/ })).getByText('US$-12,62').className).toMatch(/negative/);
+    expect(text(within(clp).getByRole('row', { name: /PEHUENCHE/ }))).toBe(
+      'PEHUENCHEPehuenche115$2.701+0,41%$310.615$10.718+3,57%+34,65%9,85%US$316,40US$10,90US$-12,62$2.607,8$299.897US$318,12$0$93.178$30.59010,2%may, dic',
+    );
+    expect(text(within(usd).getByRole('row', { name: /KO/ }))).toBe(
+      'KOCoca-Cola10,5US$68,20-0,44%US$716,10US$84,80+13,43%+16,1%2,99%US$716,10US$84,80US$0,00US$60,1234US$631,30US$631,30US$0,00US$17,34US$21,423,39%abr, jul, oct, dic',
+    );
+    // Sin precio: campos de mercado vacíos; nombre igual al símbolo no se repite.
+    expect(text(within(usd).getByRole('row', { name: /BITO/ }))).toBe(
+      'BITO3Sin precio———————US$0,00US$20,00US$60,00US$60,00US$0,00US$0,00——Sin pagos',
+    );
+  });
+
+  it('colorea la variación del día y la ganancia no realizada por signo', async () => {
+    mockFetch([
+      { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+      { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList() },
+    ]);
+    render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
+    const usd = await screen.findByRole('rowgroup', { name: 'Posiciones USD' });
+    const ko = within(usd).getByRole('row', { name: /KO/ });
+    expect(within(ko).getByText('-0,44%').dataset.tone).toBe('negative');
+    expect(within(ko).getByText('+13,43%').dataset.tone).toBe('positive');
+    const clp = screen.getByRole('rowgroup', { name: 'Posiciones CLP' });
+    expect(within(within(clp).getByRole('row', { name: /PEHUENCHE/ })).getByText('+0,41%').dataset.tone).toBe('positive');
+  });
+
+  it('muestra la fuente manual y la fecha del precio', async () => {
+    const manual = { ...positionsByInstrument[0]!, priceSource: 'MANUAL' as const };
+    mockFetch([
+      { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+      { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList([manual]) },
+    ]);
+    render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
+    const clp = await screen.findByRole('rowgroup', { name: 'Posiciones CLP' });
+    const price = within(clp).getByText('$2.701');
+    expect(price.closest('td')!.getAttribute('title')).toMatch(/^Precio manual al 03-10-2026 \d\d:\d\d$/);
+    expect(within(clp).getByText('manual')).toBeTruthy();
+  });
+
+  it('se actualiza cada 60 s sin volver al estado de carga', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetchMock = mockFetch([
+        { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+        { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList() },
+        { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList([{ ...positionsByInstrument[0]!, marketPrice: '2750' }]) },
+      ]);
+      render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
+      await screen.findByText('$2.701');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      expect(await screen.findByText('$2.750')).toBeTruthy();
+      expect(calls(fetchMock).filter((c) => c.startsWith('GET /api/v1/positions'))).toHaveLength(2);
+      expect(screen.getByRole('region', { name: 'Posiciones' }).getAttribute('aria-busy')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('muestra los totales por moneda original (de la API) al pie de cada tabla', async () => {
@@ -36,9 +96,10 @@ describe('PositionsScreen', () => {
     render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
 
     const clp = await screen.findByRole('rowgroup', { name: 'Posiciones CLP' });
-    expect(text(within(clp).getByRole('row', { name: /Total CLP/ }))).toBe('Total CLP$299.897$193.811$93.178$30.590');
+    expect(text(within(clp).getByRole('row', { name: /Total CLP/ }))).toBe('Total CLP$310.615$10.718$299.897$193.811$93.178$30.590');
     const usd = screen.getByRole('rowgroup', { name: 'Posiciones USD' });
-    expect(text(within(usd).getByRole('row', { name: /Total USD/ }))).toBe('Total USDUS$691,30US$-1,33US$17,34US$21,42');
+    // Cobertura parcial: se informa bajo el valor de mercado.
+    expect(text(within(usd).getByRole('row', { name: /Total USD/ }))).toBe('Total USDUS$716,1091,32% con precioUS$84,80US$691,30US$-1,33US$17,34US$21,42');
   });
 
   it('muestra el total general en la moneda de reporte con la fecha de los tipos de cambio', async () => {
@@ -54,9 +115,12 @@ describe('PositionsScreen', () => {
       [...total.querySelectorAll('dt')].map((dt) => [dt.textContent, (dt.nextElementSibling?.textContent ?? '').replace(/\u00a0/g, ' ')]),
     );
     expect(values).toEqual({
+      'Valor de mercado': 'US$1.032,50',
+      'Ganancia no realizada': 'US$83,08',
+      'Efecto precio': 'US$95,70',
+      'Efecto cambiario': 'US$-12,62',
       'Costo (TC histórico)': 'US$1.009,42',
       'Costo a TC actual': 'US$996,80',
-      'Efecto cambiario': 'US$-12,62',
       'Ganancia realizada': 'US$202,15',
       'Dividendos cobrados (neto)': 'US$116,04',
       'Ingreso anual esperado (bruto)': 'US$53,85',

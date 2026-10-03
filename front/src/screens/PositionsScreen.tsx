@@ -2,16 +2,19 @@ import { useState, type ReactNode } from 'react';
 import type { Api, Currency, Position, PositionList } from '../api/client.ts';
 import { DataTable } from '../components/DataTable.tsx';
 import { CheckboxField, FormField } from '../components/form.tsx';
-import { ErrorAlert, PageHeader, Signed, isZero, orDash } from '../components/ui.tsx';
-import { formatDate, formatMoney, formatPercent, formatQuantity, formatUnitPrice, monthName } from '../lib/format.ts';
+import { ErrorAlert, PageHeader, Signed, SignedPercent, isZero, orDash } from '../components/ui.tsx';
+import { formatDate, formatDateTime, formatMoney, formatPercent, formatQuantity, formatUnitPrice, isOne, monthName } from '../lib/format.ts';
 import { useAsync } from '../lib/useAsync.ts';
+import { useAutoRefresh } from '../lib/useAutoRefresh.ts';
+import { REFRESH_MS } from './SummaryScreen.tsx';
 import { Card } from '@/components/ui/card';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 
 const NUM = 'text-right tabular-nums';
-const COLUMNS = 11;
+const COLUMNS = 19;
+const RC = 'bg-accent/40';
 
 export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportingCurrency: Currency }) {
   const [accountId, setAccountId] = useState('');
@@ -22,6 +25,7 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
       api.listPositions({ groupBy: 'instrument', accountId: accountId || undefined, includeClosed: includeClosed || undefined, reportingCurrency }),
     [api, accountId, includeClosed, reportingCurrency],
   );
+  useAutoRefresh(positions.reload, REFRESH_MS);
 
   // La API ya las entrega ordenadas por moneda y símbolo; sólo se agrupan para mostrarlas. Los totales también vienen de la API.
   const data = positions.data;
@@ -59,10 +63,19 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
             <TableRow>
               <TableHead scope="col">Instrumento</TableHead>
               <TableHead scope="col" className={NUM}>Cantidad</TableHead>
+              {/* Primero lo de mercado (cabe a 1280 px); a la derecha, con scroll, reporte y costos. */}
+              <TableHead scope="col" className={NUM}>Precio</TableHead>
+              <TableHead scope="col" className={NUM}>Var. día</TableHead>
+              <TableHead scope="col" className={NUM}>Valor de mercado</TableHead>
+              <TableHead scope="col" className={NUM}>Ganancia no realizada</TableHead>
+              <TableHead scope="col" className={NUM}>Rentabilidad total</TableHead>
+              <TableHead scope="col" className={NUM}>Yield actual</TableHead>
+              <TableHead scope="col" className={cn(NUM, 'bg-accent!')}>Valor en {rc}</TableHead>
+              <TableHead scope="col" className={cn(NUM, 'bg-accent!')}>Efecto precio ({rc})</TableHead>
+              <TableHead scope="col" className={cn(NUM, 'bg-accent!')}>Efecto cambiario ({rc})</TableHead>
               <TableHead scope="col" className={NUM}>Costo promedio</TableHead>
               <TableHead scope="col" className={NUM}>Invertido</TableHead>
               <TableHead scope="col" className={cn(NUM, 'bg-accent!')}>Costo en {rc}</TableHead>
-              <TableHead scope="col" className={cn(NUM, 'bg-accent!')}>Efecto cambiario ({rc})</TableHead>
               <TableHead scope="col" className={NUM}>Ganancia realizada</TableHead>
               <TableHead scope="col" className={NUM}>Div. cobrados (neto)</TableHead>
               <TableHead scope="col" className={NUM}>Ingreso anual esperado</TableHead>
@@ -81,15 +94,38 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
                 <TableRow key={p.instrumentId} data-closed={isZero(p.quantity) || undefined} className="data-closed:text-muted-foreground">
                   <TableHead scope="row" className="h-auto py-2">
                     <span className="block font-semibold">{p.symbol}</span>
-                    <span className="block max-w-40 truncate text-xs font-normal text-muted-foreground">{p.name}</span>
+                    {p.name !== p.symbol && <span className="block max-w-40 truncate text-xs font-normal text-muted-foreground">{p.name}</span>}
                   </TableHead>
                   <TableCell className={NUM}>{formatQuantity(p.quantity)}</TableCell>
-                  <TableCell className={NUM}>{formatUnitPrice(p.averageCost, p.currency)}</TableCell>
-                  <TableCell className={NUM}>{formatMoney(p.costBasis, p.currency)}</TableCell>
-                  <TableCell className={cn(NUM, 'bg-accent/40')}>{formatMoney(p.reporting.costBasis, p.reporting.currency)}</TableCell>
-                  <TableCell className={cn(NUM, 'bg-accent/40')}>
+                  <PriceCell position={p} />
+                  <TableCell className={NUM}>{orDash(p.dayChange, (v) => <SignedPercent value={v} />)}</TableCell>
+                  <TableCell className={`${NUM} font-medium`}>{orDash(p.marketValue, (v) => formatMoney(v, p.currency))}</TableCell>
+                  <TableCell className={NUM}>
+                    {p.unrealizedGain == null ? (
+                      '—'
+                    ) : (
+                      <>
+                        <Signed amount={p.unrealizedGain} currency={p.currency} colorPositive />
+                        {p.unrealizedReturn != null && (
+                          <span className="block text-xs">
+                            <SignedPercent value={p.unrealizedReturn} />
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </TableCell>
+                  <TableCell className={NUM}>{orDash(p.totalReturn, (v) => <SignedPercent value={v} />)}</TableCell>
+                  <TableCell className={NUM}>{orDash(p.currentYield, formatPercent)}</TableCell>
+                  <TableCell className={cn(NUM, RC)}>{orDash(p.reporting.marketValue, (v) => formatMoney(v, p.reporting.currency))}</TableCell>
+                  <TableCell className={cn(NUM, RC)}>
+                    {orDash(p.reporting.priceEffect, (v) => <Signed amount={v} currency={p.reporting.currency} colorPositive />)}
+                  </TableCell>
+                  <TableCell className={cn(NUM, RC)}>
                     <Signed amount={p.reporting.fxEffect} currency={p.reporting.currency} colorPositive />
                   </TableCell>
+                  <TableCell className={NUM}>{formatUnitPrice(p.averageCost, p.currency)}</TableCell>
+                  <TableCell className={NUM}>{formatMoney(p.costBasis, p.currency)}</TableCell>
+                  <TableCell className={cn(NUM, RC)}>{formatMoney(p.reporting.costBasis, p.reporting.currency)}</TableCell>
                   <TableCell className={NUM}>
                     <Signed amount={p.realizedGain} currency={p.currency} />
                   </TableCell>
@@ -115,12 +151,19 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
             </h2>
             <p className="text-xs text-muted-foreground">Tipos de cambio al {formatDate(data.fxAsOf)}</p>
           </div>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 lg:grid-cols-6 [&_dd]:font-semibold [&_dd]:tabular-nums [&_dt]:text-xs [&_dt]:text-muted-foreground">
-            <TotalItem label="Costo (TC histórico)">{formatMoney(data.total.costBasis, data.total.currency)}</TotalItem>
-            <TotalItem label="Costo a TC actual">{formatMoney(data.total.costBasisAtCurrentRate, data.total.currency)}</TotalItem>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 [&_dd]:font-semibold [&_dd]:tabular-nums [&_dt]:text-xs [&_dt]:text-muted-foreground">
+            <TotalItem label="Valor de mercado">{orDash(data.total.marketValue, (v) => formatMoney(v, data.total.currency))}</TotalItem>
+            <TotalItem label="Ganancia no realizada">
+              {orDash(data.total.unrealizedGain, (v) => <Signed amount={v} currency={data.total.currency} colorPositive />)}
+            </TotalItem>
+            <TotalItem label="Efecto precio">
+              {orDash(data.total.priceEffect, (v) => <Signed amount={v} currency={data.total.currency} colorPositive />)}
+            </TotalItem>
             <TotalItem label="Efecto cambiario">
               <Signed amount={data.total.fxEffect} currency={data.total.currency} colorPositive />
             </TotalItem>
+            <TotalItem label="Costo (TC histórico)">{formatMoney(data.total.costBasis, data.total.currency)}</TotalItem>
+            <TotalItem label="Costo a TC actual">{formatMoney(data.total.costBasisAtCurrentRate, data.total.currency)}</TotalItem>
             <TotalItem label="Ganancia realizada">
               <Signed amount={data.total.realizedGain} currency={data.total.currency} />
             </TotalItem>
@@ -159,9 +202,24 @@ function GroupTotals({ totals }: { totals: PositionList['totalsByCurrency'][numb
       <TableHead scope="row">Total {totals.currency}</TableHead>
       <TableCell />
       <TableCell />
+      <TableCell />
+      <TableCell className={NUM}>
+        {money(totals.marketValue)}
+        {!isOne(totals.pricedCoverage) && (
+          <span className="block text-xs font-normal text-muted-foreground">{formatPercent(totals.pricedCoverage)} con precio</span>
+        )}
+      </TableCell>
+      <TableCell className={NUM}>
+        <Signed amount={totals.unrealizedGain} currency={totals.currency} colorPositive />
+      </TableCell>
+      <TableCell />
+      <TableCell />
+      <TableCell className={RC} />
+      <TableCell className={RC} />
+      <TableCell className={RC} />
+      <TableCell />
       <TableCell className={NUM}>{money(totals.costBasis)}</TableCell>
-      <TableCell className="bg-accent/40" />
-      <TableCell className="bg-accent/40" />
+      <TableCell className={RC} />
       <TableCell className={NUM}>
         <Signed amount={totals.realizedGain} currency={totals.currency} />
       </TableCell>
@@ -170,6 +228,18 @@ function GroupTotals({ totals }: { totals: PositionList['totalsByCurrency'][numb
       <TableCell />
       <TableCell />
     </TableRow>
+  );
+}
+
+/** Precio actual con su fecha y fuente (title); "Sin precio" si el proveedor no lo cubre. */
+function PriceCell({ position: p }: { position: Position }) {
+  if (p.marketPrice == null) return <TableCell className={`${NUM} text-muted-foreground`}>Sin precio</TableCell>;
+  const source = p.priceSource === 'MANUAL' ? 'Precio manual' : 'Precio';
+  return (
+    <TableCell className={NUM} title={p.priceAsOf ? `${source} al ${formatDateTime(p.priceAsOf)}` : source}>
+      {p.priceSource === 'MANUAL' && <span className="mr-1 rounded bg-info px-1 text-[10px] text-info-foreground uppercase">manual</span>}
+      <span>{formatUnitPrice(p.marketPrice, p.currency)}</span>
+    </TableCell>
   );
 }
 

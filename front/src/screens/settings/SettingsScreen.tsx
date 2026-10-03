@@ -6,9 +6,9 @@ import { DataTable, Pager } from '../../components/DataTable.tsx';
 import { FormField, FormGrid } from '../../components/form.tsx';
 import { ConfirmDialog, Modal } from '../../components/Modal.tsx';
 import { Badge, ErrorAlert, PageHeader } from '../../components/ui.tsx';
-import { formatMoney, formatPercent, fractionToPercent, normalizeDecimal, percentToFraction } from '../../lib/format.ts';
+import { formatDateTime, formatMoney, formatPercent, formatUnitPrice, fractionToPercent, normalizeDecimal, percentToFraction } from '../../lib/format.ts';
 import { CURRENCIES, INSTRUMENT_TYPE } from '../../lib/labels.ts';
-import { useAsync } from '../../lib/useAsync.ts';
+import { today, useAsync } from '../../lib/useAsync.ts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
@@ -206,6 +206,7 @@ function InstrumentsSection({ api }: { api: Api }) {
   const [version, setVersion] = useState(0);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Instrument | null>(null);
+  const [pricing, setPricing] = useState<Instrument | null>(null);
   const refresh = () => setVersion((v) => v + 1);
   const markets = useAsync(() => api.listMarkets(), [api]);
   const instruments = useAsync(() => api.listInstruments({ q: q || undefined, limit: LIMIT, offset }), [api, q, offset, version]);
@@ -255,6 +256,10 @@ function InstrumentsSection({ api }: { api: Api }) {
               <TableHead scope="col">Tipo</TableHead>
               <TableHead scope="col">Moneda</TableHead>
               <TableHead scope="col">Sector / industria</TableHead>
+              <TableHead scope="col">Símbolo proveedor</TableHead>
+              <TableHead scope="col" className={NUM}>
+                Última cotización
+              </TableHead>
               <TableHead scope="col" className={NUM}>
                 Retención
               </TableHead>
@@ -275,15 +280,36 @@ function InstrumentsSection({ api }: { api: Api }) {
                 <TableCell>{INSTRUMENT_TYPE[i.type]}</TableCell>
                 <TableCell>{i.currency}</TableCell>
                 <TableCell>{[i.sector, i.industry].filter(Boolean).join(' / ') || '—'}</TableCell>
+                <TableCell>
+                  {i.effectivePriceSymbol ?? <span className="text-muted-foreground">Sin cobertura</span>}
+                  {i.priceSymbol !== null && <span className="ml-1 text-xs text-muted-foreground">(personalizado)</span>}
+                </TableCell>
+                <TableCell className={NUM}>
+                  {i.lastPrice ? (
+                    <>
+                      <span className="block">{formatUnitPrice(i.lastPrice.price, i.lastPrice.currency)}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {formatDateTime(i.lastPrice.asOf)} · {i.lastPrice.source === 'MANUAL' ? 'Manual' : 'Proveedor'}
+                      </span>
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </TableCell>
                 <TableCell className={NUM}>
                   {formatPercent(i.effectiveWithholdingRate)}
                   {i.withholdingRate === null && <span className="text-xs text-muted-foreground"> (mercado)</span>}
                 </TableCell>
                 <TableCell className={NUM}>{i.annualDividendPerShare === null ? '—' : formatMoney(i.annualDividendPerShare, i.currency)}</TableCell>
                 <TableCell className="text-right">
-                  <Button size="sm" variant="outline" onClick={() => setEditing(i)}>
-                    Editar
-                  </Button>
+                  <div className="flex justify-end gap-1">
+                    <Button size="sm" variant="outline" onClick={() => setEditing(i)}>
+                      Editar
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setPricing(i)}>
+                      Registrar precio
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -304,6 +330,7 @@ function InstrumentsSection({ api }: { api: Api }) {
         </Modal>
       )}
       {editing && <InstrumentEditDialog api={api} instrument={editing} onClose={() => setEditing(null)} onSaved={refresh} />}
+      {pricing && <ManualPriceDialog api={api} instrument={pricing} onClose={() => setPricing(null)} onSaved={refresh} />}
     </>
   );
 }
@@ -357,6 +384,7 @@ function InstrumentEditDialog({ api, instrument, onClose, onSaved }: { api: Api;
   const ids = useId();
   const [name, setName] = useState(instrument.name);
   const [type, setType] = useState(instrument.type);
+  const [priceSymbol, setPriceSymbol] = useState(instrument.priceSymbol ?? '');
   const [details, setDetails] = useState<InstrumentDetails>({
     sector: instrument.sector ?? '',
     industry: instrument.industry ?? '',
@@ -366,7 +394,7 @@ function InstrumentEditDialog({ api, instrument, onClose, onSaved }: { api: Api;
 
   async function save() {
     if (!name.trim()) throw new InputError('El nombre no puede quedar vacío.');
-    await api.updateInstrument(instrument.id, { name: name.trim(), type, ...detailsToBody(details) });
+    await api.updateInstrument(instrument.id, { name: name.trim(), type, ...detailsToBody(details), priceSymbol: priceSymbol.trim() || null });
     onSaved();
   }
 
@@ -383,6 +411,51 @@ function InstrumentEditDialog({ api, instrument, onClose, onSaved }: { api: Api;
           <TypeSelect id={`${ids}-type`} value={type} onChange={setType} />
         </FormField>
         <DetailsFields ids={ids} value={details} onChange={setDetails} />
+        <FormField
+          label="Símbolo en el proveedor"
+          htmlFor={`${ids}-price-symbol`}
+          hint="Vacío usa el derivado del mercado (Santiago: SÍMBOLO.SN; EE.UU.: el símbolo con “-” en vez de “.”)."
+          className="lg:col-span-2"
+        >
+          <Input id={`${ids}-price-symbol`} maxLength={30} value={priceSymbol} onChange={(e) => setPriceSymbol(e.target.value)} />
+        </FormField>
+      </FormGrid>
+    </ConfirmDialog>
+  );
+}
+
+/** Precio manual de una fecha. Es global: vale para todos los usuarios y el proveedor no lo sobrescribe para esa fecha. */
+function ManualPriceDialog({ api, instrument, onClose, onSaved }: { api: Api; instrument: Instrument; onClose: () => void; onSaved: () => void }) {
+  const ids = useId();
+  const [date, setDate] = useState(today());
+  const [price, setPrice] = useState('');
+
+  async function save() {
+    const value = normalizeDecimal(price);
+    if (!value || value.startsWith('-') || !/[1-9]/.test(value)) throw new InputError('El precio debe ser un número mayor que 0.');
+    if (!date) throw new InputError('Indica la fecha.');
+    await api.setManualPrice(instrument.id, { date, price: value });
+    onSaved();
+  }
+
+  return (
+    <ConfirmDialog variant="form" title={`Precio manual de ${instrument.symbol}`} confirmLabel="Registrar precio" onClose={onClose} onConfirm={save}>
+      <p className="rounded-lg bg-warning px-3 py-2 text-warning-foreground">
+        El precio manual es global: se usa para todos los usuarios que tengan {instrument.symbol} y el proveedor no lo sobrescribe para esa fecha.
+      </p>
+      {instrument.lastPrice && (
+        <p className="text-muted-foreground">
+          Última cotización: {formatUnitPrice(instrument.lastPrice.price, instrument.lastPrice.currency)} ({formatDateTime(instrument.lastPrice.asOf)},{' '}
+          {instrument.lastPrice.source === 'MANUAL' ? 'manual' : 'proveedor'})
+        </p>
+      )}
+      <FormGrid className="lg:grid-cols-2">
+        <FormField label="Fecha" htmlFor={`${ids}-date`}>
+          <Input id={`${ids}-date`} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </FormField>
+        <FormField label={`Precio (${instrument.currency})`} htmlFor={`${ids}-price`}>
+          <Input id={`${ids}-price`} inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
+        </FormField>
       </FormGrid>
     </ConfirmDialog>
   );

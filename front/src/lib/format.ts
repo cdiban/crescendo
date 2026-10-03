@@ -56,10 +56,32 @@ export function formatPercent(fraction: string): string {
   return percentFormat.format(asNumeric(fraction));
 }
 
+const signedPercentFormat = new Intl.NumberFormat('es-CL', { style: 'percent', maximumFractionDigits: 2, signDisplay: 'exceptZero' });
+/** Fracción con signo explícito ("0.0041" → "+0,41%"): variaciones y rentabilidades. */
+export function formatSignedPercent(fraction: string): string {
+  return signedPercentFormat.format(asNumeric(fraction));
+}
+
 /** Fecha de negocio YYYY-MM-DD → DD-MM-AAAA, sin Date (evita corrimientos por zona horaria). */
 export function formatDate(date: string): string {
   const [y, m, d] = date.split('-');
   return `${d}-${m}-${y}`;
+}
+
+/**
+ * Timestamp técnico (ISO 8601) → "DD-MM-AAAA HH:mm" en la hora local del navegador.
+ * Medianoche UTC exacta es un cierre diario sin hora: se muestra sólo la fecha (convertirla correría el día en Chile).
+ */
+export function formatDateTime(iso: string): string {
+  if (/T00:00:00(\.0+)?Z$/.test(iso)) return formatDate(iso.slice(0, 10));
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** El decimal es exactamente 1 ("1", "1.0000"), sin convertirlo a número. */
+export function isOne(decimal: string): boolean {
+  return /^1(\.0*)?$/.test(decimal);
 }
 
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 'oct', 'nov', 'dic'];

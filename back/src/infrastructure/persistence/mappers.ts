@@ -43,6 +43,8 @@ export const instrumentMapper = {
     industry: r.industry,
     withholdingRate: decOrNull(r.withholdingRate),
     annualDividendPerShare: decOrNull(r.annualDividendPerShare),
+    priceSymbol: r.priceSymbol,
+    priceSyncedSymbol: r.priceSyncedSymbol,
   }),
   toRecord: (i: Omit<Instrument, 'id'> & { id?: string }): Partial<InstrumentRecord> => ({
     ...(i.id ? { id: i.id } : {}),
@@ -55,6 +57,8 @@ export const instrumentMapper = {
     industry: i.industry,
     withholdingRate: str(i.withholdingRate),
     annualDividendPerShare: str(i.annualDividendPerShare),
+    priceSymbol: i.priceSymbol,
+    priceSyncedSymbol: i.priceSyncedSymbol,
   }),
 };
 

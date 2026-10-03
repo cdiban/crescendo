@@ -11,6 +11,7 @@ import type { Catalog } from '../../application/use-cases/catalog.ts';
 import type { DividendInput, Dividends } from '../../application/use-cases/dividends.ts';
 import type { FxRates } from '../../application/use-cases/fx-rates.ts';
 import type { Preferences } from '../../application/use-cases/preferences.ts';
+import type { Prices } from '../../application/use-cases/prices.ts';
 import type { Portfolio } from '../../application/use-cases/portfolio.ts';
 import type { TradeInput, Trades } from '../../application/use-cases/trades.ts';
 import { HttpError } from './problem.ts';
@@ -18,6 +19,7 @@ import {
   presentAccount,
   presentCashMovement,
   presentDividend,
+  presentHistoryPoint,
   presentInstrument,
   presentMarket,
   presentPage,
@@ -39,6 +41,7 @@ export type PortfolioUseCases = {
   portfolio: Portfolio;
   preferences: Preferences;
   fxRates: FxRates;
+  prices: Prices;
 };
 
 type Authed = (handler: (req: HttpRequest, user: User) => Promise<HttpResponse>) => (req: HttpRequest) => Promise<HttpResponse>;
@@ -125,7 +128,7 @@ function readDividendInput(body: unknown): DividendInput {
 }
 
 export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCases, authed: Authed): void {
-  const { catalog, accounts, trades, dividends, cash, portfolio, preferences, fxRates } = useCases;
+  const { catalog, accounts, trades, dividends, cash, portfolio, preferences, fxRates, prices } = useCases;
 
   // ── Preferencias y tipos de cambio (v0.3) ──
   router.add('GET', `${API}/me/preferences`, authed(async (_req, user) => ok(await preferences.get(user.id))));
@@ -162,7 +165,7 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
   }));
 
   router.add('POST', `${API}/instruments`, authed(async (req) => {
-    const r = Reader.body(req.body, ['symbol', 'marketCode', 'name', 'type', 'currency', 'sector', 'industry', 'withholdingRate', 'annualDividendPerShare']);
+    const r = Reader.body(req.body, ['symbol', 'marketCode', 'name', 'type', 'currency', 'sector', 'industry', 'withholdingRate', 'annualDividendPerShare', 'priceSymbol']);
     const input = {
       symbol: r.string('symbol', { pattern: /^[A-Za-z0-9.-]{1,20}$/ }),
       marketCode: r.string('marketCode', { min: 1 }),
@@ -173,6 +176,7 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
       industry: r.nullableString('industry', { max: 60 }),
       withholdingRate: r.nullableDecimal('withholdingRate'),
       annualDividendPerShare: r.nullableDecimal('annualDividendPerShare'),
+      priceSymbol: r.nullableString('priceSymbol', { max: 30 }),
     };
     r.finish();
     return created(presentInstrument(await catalog.createInstrument({ ...input, symbol: input.symbol!, marketCode: input.marketCode!, name: input.name!, type: input.type! })));
@@ -182,7 +186,7 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
 
   router.add('PATCH', `${API}/instruments/:id`, authed(async (req) => {
     const id = idParam(req, 'id');
-    const r = Reader.body(req.body, ['name', 'type', 'sector', 'industry', 'withholdingRate', 'annualDividendPerShare'], { minProperties: 1 });
+    const r = Reader.body(req.body, ['name', 'type', 'sector', 'industry', 'withholdingRate', 'annualDividendPerShare', 'priceSymbol'], { minProperties: 1 });
     const changes = {
       name: r.string('name', { optional: true, min: 1, max: 120 }),
       type: r.enumOf('type', INSTRUMENT_TYPES, { optional: true }),
@@ -190,10 +194,32 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
       industry: r.nullableString('industry', { max: 60 }),
       withholdingRate: r.nullableDecimal('withholdingRate'),
       annualDividendPerShare: r.nullableDecimal('annualDividendPerShare'),
+      priceSymbol: r.nullableString('priceSymbol', { max: 30 }),
     };
     r.finish();
     const defined = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined));
     return ok(presentInstrument(await catalog.updateInstrument(id, defined)));
+  }));
+
+  router.add('GET', `${API}/instruments/:id/prices`, authed(async (req) => {
+    const id = idParam(req, 'id');
+    const r = Reader.query(req.query);
+    const range = { from: r.date('from', { optional: true }), to: r.date('to', { optional: true }) };
+    r.finish();
+    const { instrument, items } = await prices.list(id, range.from, range.to);
+    return ok({
+      instrumentId: instrument.id,
+      currency: instrument.currency,
+      items: items.map((c) => ({ date: c.date, close: c.close.toString(), source: c.source })),
+    });
+  }));
+  router.add('PUT', `${API}/instruments/:id/prices`, authed(async (req) => {
+    const id = idParam(req, 'id');
+    const r = Reader.body(req.body, ['date', 'price']);
+    const input = { date: r.date('date'), price: r.decimal('price') };
+    if (input.price && !input.price.isPositive()) r.errors.push({ field: 'price', message: 'Debe ser mayor que 0' });
+    r.finish();
+    return ok(presentInstrument(await prices.setManual(id, input.date!, input.price!)));
   }));
 
   // ── Cuentas ──
@@ -371,6 +397,19 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
     };
     r.finish();
     return ok(presentPositions(await portfolio.positions(user.id, query)));
+  }));
+
+  router.add('GET', `${API}/portfolio/history`, authed(async (req, user) => {
+    const r = Reader.query(req.query);
+    const query = {
+      reportingCurrency: r.currency('reportingCurrency', { optional: true }),
+      from: r.date('from', { optional: true }),
+      to: r.date('to', { optional: true }),
+      interval: r.enumOf('interval', ['day', 'week', 'month'] as const, { optional: true }) ?? 'day',
+    };
+    r.finish();
+    const result = await portfolio.history(user.id, query);
+    return ok({ reportingCurrency: result.reportingCurrency, items: result.items.map(presentHistoryPoint) });
   }));
 
   router.add('GET', `${API}/portfolio/summary`, authed(async (req, user) => {

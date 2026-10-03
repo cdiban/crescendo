@@ -61,6 +61,9 @@ describe('posiciones en moneda de reporte', () => {
       realizedGain: '99350',
       dividendsNet: '8075',
       expectedAnnualIncomeGross: '17992.8',
+      marketValue: null,
+      priceEffect: null,
+      unrealizedGain: null,
     });
     assert.deepEqual(reportingOf(res.items, 'PEHUENCHE'), {
       currency: 'CLP',
@@ -70,6 +73,9 @@ describe('posiciones en moneda de reporte', () => {
       realizedGain: '0',
       dividendsNet: '5000',
       expectedAnnualIncomeGross: '26600',
+      marketValue: null,
+      priceEffect: null,
+      unrealizedGain: null,
     });
     assert.deepEqual(res.total, {
       currency: 'CLP',
@@ -79,6 +85,9 @@ describe('posiciones en moneda de reporte', () => {
       realizedGain: '99350',
       dividendsNet: '13075',
       expectedAnnualIncomeGross: '44592.8',
+      marketValue: null,
+      priceEffect: null,
+      unrealizedGain: null,
     });
     for (const r of [...res.items.map((i: { reporting: never }) => i.reporting), res.total]) assertInvariant(r);
   });
@@ -100,8 +109,8 @@ describe('posiciones en moneda de reporte', () => {
   test('totales por moneda original (sin conversión)', async () => {
     const res = await expectStatus(await ana.get('/positions?asOf=2025-10-01'), 200);
     assert.deepEqual(res.totalsByCurrency, [
-      { currency: 'CLP', costBasis: '100000', realizedGain: '0', dividendsGross: '5000', dividendsNet: '5000', expectedAnnualIncomeGross: '26600' },
-      { currency: 'USD', costBasis: '933', realizedGain: '95', dividendsGross: '10', dividendsNet: '8.5', expectedAnnualIncomeGross: '18.36' },
+      { currency: 'CLP', costBasis: '100000', realizedGain: '0', dividendsGross: '5000', dividendsNet: '5000', expectedAnnualIncomeGross: '26600', marketValue: '0', unrealizedGain: '0', pricedCoverage: '0' },
+      { currency: 'USD', costBasis: '933', realizedGain: '95', dividendsGross: '10', dividendsNet: '8.5', expectedAnnualIncomeGross: '18.36', marketValue: '0', unrealizedGain: '0', pricedCoverage: '0' },
     ]);
   });
 
@@ -137,7 +146,15 @@ describe('resumen del portafolio', () => {
       // caja USD: 1170.5 × 980 = 1147090 − (1800000 − 904500 − 550000 + 681150 + 8075) = 112365
       fxEffect: { positions: '41640', cash: '112365', total: '154005' },
       realizedGain: '99350',
-      dividends: { netYearToDate: '13075', netLast12Months: '13075', netTotal: '13075', expectedAnnualGross: '44592.8' },
+      // Sin precios cargados (v0.4): valor de mercado 0 y cobertura 0.
+      marketValue: '0',
+      netWorth: '1252090',
+      priceEffect: '0',
+      unrealizedGain: '0',
+      totalGain: '-747910',
+      pricedCoverage: '0',
+      pricesAsOf: null,
+      dividends: { netYearToDate: '13075', netLast12Months: '13075', netTotal: '13075', expectedAnnualGross: '44592.8', currentYield: null },
       exposure: [
         { currency: 'USD', amount: '2061430', weight: '0.909549' },
         { currency: 'CLP', amount: '205000', weight: '0.090451' },
@@ -156,7 +173,7 @@ describe('resumen del portafolio', () => {
 
   test('dividendos por período: año en curso, 12 meses y total', async () => {
     const s = await expectStatus(await ana.get('/portfolio/summary?reportingCurrency=CLP&asOf=2026-04-15'), 200);
-    assert.deepEqual(s.dividends, { netYearToDate: '0', netLast12Months: '5000', netTotal: '13075', expectedAnnualGross: '44592.8' });
+    assert.deepEqual(s.dividends, { netYearToDate: '0', netLast12Months: '5000', netTotal: '13075', expectedAnnualGross: '44592.8', currentYield: null });
   });
 });
 

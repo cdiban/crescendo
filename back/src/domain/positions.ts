@@ -31,6 +31,8 @@ export type Holding = {
   /** costBasis / quantity, 10 decimales; 0 si la posición está cerrada. */
   averageCost: Decimal;
   realizedGain: Decimal;
+  /** Σ de compras (con comisiones) en moneda original: denominador de la rentabilidad total. */
+  totalBought: Decimal;
   firstTradeDate: string;
   /** Sólo si se pidió conversión. */
   reporting?: ReportingHolding;
@@ -46,41 +48,49 @@ export function sortTrades<T extends PositionTrade>(trades: readonly T[]): T[] {
   );
 }
 
-/**
- * Posiciones por cuenta + instrumento con costo promedio ponderado. Con `conversion` lleva además
- * un segundo costo promedio en moneda de reporte (cada compra a su TC; las ventas descargan la
- * misma fracción del costo en reporte que del costo original).
- */
-export function computeHoldings(trades: readonly PositionTrade[], asOf?: string, conversion?: ReportingConversion): Holding[] {
-  type State = {
-    accountId: string;
-    instrumentId: string;
-    quantity: Decimal;
-    cost: Decimal;
-    realized: Decimal;
-    first: string;
-    costRep: Decimal;
-    realizedRep: Decimal;
-  };
-  const states = new Map<string, State>();
+type HoldingState = {
+  accountId: string;
+  instrumentId: string;
+  quantity: Decimal;
+  cost: Decimal;
+  bought: Decimal;
+  realized: Decimal;
+  first: string;
+  costRep: Decimal;
+  realizedRep: Decimal;
+};
 
-  for (const t of sortTrades(trades)) {
-    if (asOf !== undefined && t.tradeDate > asOf) continue;
+/**
+ * Libro de posiciones incremental: aplica operaciones en orden cronológico y entrega la foto en
+ * cualquier momento. Lo usan computeHoldings (una foto) y la serie histórica (una foto por día).
+ */
+export class HoldingsBook {
+  readonly #states = new Map<string, HoldingState>();
+  readonly #conversion: ReportingConversion | undefined;
+
+  constructor(conversion?: ReportingConversion) {
+    this.#conversion = conversion;
+  }
+
+  /** Las operaciones deben llegar en el orden de sortTrades. */
+  apply(t: PositionTrade): void {
     const key = `${t.accountId}\u0000${t.instrumentId}`;
-    let s = states.get(key);
+    let s = this.#states.get(key);
     if (!s) {
       s = {
         accountId: t.accountId,
         instrumentId: t.instrumentId,
         quantity: Decimal.ZERO,
         cost: Decimal.ZERO,
+        bought: Decimal.ZERO,
         realized: Decimal.ZERO,
         first: t.tradeDate,
         costRep: Decimal.ZERO,
         realizedRep: Decimal.ZERO,
       };
-      states.set(key, s);
+      this.#states.set(key, s);
     }
+    const conversion = this.#conversion;
     const gross = t.quantity.mul(t.price);
     const fees = t.commission.add(t.commissionTax);
     const toReporting = conversion ? (amount: Decimal) => conversion.toReporting(t.instrumentId, amount, t.tradeDate) : null;
@@ -88,8 +98,9 @@ export function computeHoldings(trades: readonly PositionTrade[], asOf?: string,
       const total = gross.add(fees);
       s.quantity = s.quantity.add(t.quantity);
       s.cost = s.cost.add(total);
+      s.bought = s.bought.add(total);
       if (toReporting) s.costRep = s.costRep.add(toReporting(total));
-      continue;
+      return;
     }
     if (t.quantity.gt(s.quantity)) throw new InsufficientPositionError(t.tradeDate);
     const all = t.quantity.eq(s.quantity);
@@ -108,20 +119,41 @@ export function computeHoldings(trades: readonly PositionTrade[], asOf?: string,
     }
   }
 
-  return [...states.values()]
-    .sort((a, b) => (a.accountId !== b.accountId ? (a.accountId < b.accountId ? -1 : 1) : a.instrumentId < b.instrumentId ? -1 : 1))
-    .map((s) => ({
-      accountId: s.accountId,
-      instrumentId: s.instrumentId,
-      quantity: s.quantity,
-      costBasis: roundAmount(s.cost),
-      averageCost: s.quantity.isZero() ? Decimal.ZERO : s.cost.div(s.quantity, QUANTITY_SCALE),
-      realizedGain: roundAmount(s.realized.round(INTERNAL_SCALE)),
-      firstTradeDate: s.first,
-      ...(conversion
-        ? { reporting: { costBasis: roundAmount(s.costRep), realizedGain: roundAmount(s.realizedRep.round(INTERNAL_SCALE)) } }
-        : {}),
-    }));
+  /** Estado interno sin redondear (para sumas diarias de la serie histórica). */
+  states(): Iterable<Readonly<HoldingState>> {
+    return this.#states.values();
+  }
+
+  holdings(): Holding[] {
+    return [...this.#states.values()]
+      .sort((a, b) => (a.accountId !== b.accountId ? (a.accountId < b.accountId ? -1 : 1) : a.instrumentId < b.instrumentId ? -1 : 1))
+      .map((s) => ({
+        accountId: s.accountId,
+        instrumentId: s.instrumentId,
+        quantity: s.quantity,
+        costBasis: roundAmount(s.cost),
+        averageCost: s.quantity.isZero() ? Decimal.ZERO : s.cost.div(s.quantity, QUANTITY_SCALE),
+        realizedGain: roundAmount(s.realized.round(INTERNAL_SCALE)),
+        totalBought: roundAmount(s.bought),
+        firstTradeDate: s.first,
+        ...(this.#conversion
+          ? { reporting: { costBasis: roundAmount(s.costRep), realizedGain: roundAmount(s.realizedRep.round(INTERNAL_SCALE)) } }
+          : {}),
+      }));
+  }
+}
+
+/**
+ * Posiciones por cuenta + instrumento con costo promedio ponderado. Con `conversion` lleva además
+ * un segundo costo promedio en moneda de reporte (cada compra a su TC; las ventas descargan la
+ * misma fracción del costo en reporte que del costo original).
+ */
+export function computeHoldings(trades: readonly PositionTrade[], asOf?: string, conversion?: ReportingConversion): Holding[] {
+  const book = new HoldingsBook(conversion);
+  for (const t of sortTrades(trades)) {
+    if (asOf === undefined || t.tradeDate <= asOf) book.apply(t);
+  }
+  return book.holdings();
 }
 
 type QuantityTrade = Pick<PositionTrade, 'side' | 'tradeDate' | 'quantity'>;

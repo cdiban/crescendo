@@ -20,6 +20,7 @@ import type {
   InstrumentRepository,
   MarketRepository,
   Repositories,
+  TradedInstrument,
   TradeFilter,
   TradeRepository,
 } from '../../application/ports/repositories.ts';
@@ -41,6 +42,7 @@ import {
   TradeSchema,
 } from './schemas.ts';
 import { TypeOrmFxRateRepository } from './typeorm-fx-rate-repository.ts';
+import { TypeOrmPriceRepository } from './typeorm-price-repository.ts';
 import { TypeOrmUserRepository } from './typeorm-user-repository.ts';
 
 async function page<R extends ObjectLiteral, T>(
@@ -124,6 +126,11 @@ export class TypeOrmInstrumentRepository implements InstrumentRepository {
 
   async update(instrument: Instrument): Promise<void> {
     await this.#repo().update({ id: instrument.id }, instrumentMapper.toRecord(instrument));
+  }
+
+  async createdSince(since: Date): Promise<Instrument[]> {
+    const records = await this.#repo().createQueryBuilder('i').where('i.created_at >= :since', { since }).getMany();
+    return records.map(instrumentMapper.toDomain);
   }
 }
 
@@ -229,6 +236,20 @@ export class TypeOrmTradeRepository implements TradeRepository {
 
   async delete(userId: string, id: string): Promise<void> {
     await this.#repo().delete({ id, userId });
+  }
+
+  async tradedInstruments(): Promise<TradedInstrument[]> {
+    // Posición abierta si alguna cuenta de algún usuario tiene cantidad neta > 0.
+    const rows: Array<{ instrument_id: string; first: string; open: boolean }> = await this.#m.query(`
+      SELECT instrument_id, min(first) AS first, bool_or(qty > 0) AS open
+      FROM (
+        SELECT instrument_id, min(trade_date) AS first,
+               sum(CASE WHEN side = 'BUY' THEN quantity ELSE -quantity END) AS qty
+        FROM trades GROUP BY user_id, account_id, instrument_id
+      ) per_account
+      GROUP BY instrument_id
+    `);
+    return rows.map((r) => ({ instrumentId: r.instrument_id, firstTradeDate: r.first, open: r.open }));
   }
 }
 
@@ -378,5 +399,6 @@ export function createRepositories(manager: EntityManager): Repositories {
     dividends: new TypeOrmDividendRepository(manager),
     cashMovements: new TypeOrmCashMovementRepository(manager),
     fxRates: new TypeOrmFxRateRepository(manager),
+    prices: new TypeOrmPriceRepository(manager),
   };
 }

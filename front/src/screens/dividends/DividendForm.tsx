@@ -197,7 +197,10 @@ export function DividendForm({ api, accounts, instruments, positions, initial, o
         >
           <InstrumentCombobox
             id={`${ids}-instrument`}
-            options={openInstruments.map((p) => ({ label: optionLabel(p), detail: `${p.name} — ${formatQuantity(p.quantity)} acciones` }))}
+            options={openInstruments.map((p) => ({
+              label: optionLabel(p),
+              detail: `${p.name !== p.symbol ? `${p.name} — ` : ''}${formatQuantity(p.quantity)} acciones`,
+            }))}
             value={instrumentText}
             onValueChange={chooseInstrument}
             placeholder="Símbolo, p. ej. KO"

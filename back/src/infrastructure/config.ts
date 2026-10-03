@@ -54,6 +54,7 @@ export type WorkerConfig = {
   /** Primer día del backfill de tipos de cambio. */
   fxBackfillFrom: string;
   fxSyncIntervalMinutes: number;
+  quotesIntervalMinutes: number;
 };
 
 /** Configuración del worker: no expone HTTP, así que no necesita APP_ORIGIN ni PORT. */
@@ -65,5 +66,6 @@ export function loadWorkerConfig(env: Env): WorkerConfig {
     sessionTtlHours: positiveInt(env, 'SESSION_TTL_HOURS', 168),
     fxBackfillFrom: from,
     fxSyncIntervalMinutes: positiveInt(env, 'FX_SYNC_INTERVAL_MINUTES', 360),
+    quotesIntervalMinutes: positiveInt(env, 'QUOTES_INTERVAL_MINUTES', 5),
   };
 }

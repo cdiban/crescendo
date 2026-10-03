@@ -77,6 +77,9 @@ export type InstrumentRecord = {
   industry: string | null;
   withholdingRate: string | null;
   annualDividendPerShare: string | null;
+  priceSymbol: string | null;
+  priceSyncedSymbol: string | null;
+  createdAt?: Date;
 };
 
 export const InstrumentSchema = new EntitySchema<InstrumentRecord>({
@@ -93,6 +96,9 @@ export const InstrumentSchema = new EntitySchema<InstrumentRecord>({
     industry: { type: 'text', nullable: true },
     withholdingRate: { type: 'numeric', precision: 7, scale: 6, nullable: true, name: 'withholding_rate' },
     annualDividendPerShare: { type: 'numeric', precision: 28, scale: 10, nullable: true, name: 'annual_dividend_per_share' },
+    priceSymbol: { type: 'text', nullable: true, name: 'price_symbol' },
+    priceSyncedSymbol: { type: 'text', nullable: true, name: 'price_synced_symbol' },
+    createdAt: { type: 'timestamptz', name: 'created_at', createDate: true },
   },
 });
 
@@ -245,6 +251,44 @@ export const FxRateSchema = new EntitySchema<FxRateRecord>({
     currency: { type: 'char', length: 3, primary: true },
     date: { type: 'date', primary: true },
     rate: { type: 'numeric', precision: 20, scale: 10 },
+    source: { type: 'text' },
+    fetchedAt: { type: 'timestamptz', name: 'fetched_at', createDate: true },
+  },
+});
+
+export type PriceQuoteRecord = {
+  instrumentId: string;
+  price: string;
+  previousClose: string | null;
+  asOf: Date;
+  priceDate: string;
+  source: string;
+  fetchedAt?: Date;
+};
+
+export const PriceQuoteSchema = new EntitySchema<PriceQuoteRecord>({
+  name: 'PriceQuote',
+  tableName: 'price_quotes',
+  columns: {
+    instrumentId: { type: 'uuid', primary: true, name: 'instrument_id' },
+    price: { type: 'numeric', precision: 28, scale: 10 },
+    previousClose: { type: 'numeric', precision: 28, scale: 10, nullable: true, name: 'previous_close' },
+    asOf: { type: 'timestamptz', name: 'as_of' },
+    priceDate: { type: 'date', name: 'price_date' },
+    source: { type: 'text' },
+    fetchedAt: { type: 'timestamptz', name: 'fetched_at', createDate: true },
+  },
+});
+
+export type PriceHistoryRecord = { instrumentId: string; date: string; close: string; source: string; fetchedAt?: Date };
+
+export const PriceHistorySchema = new EntitySchema<PriceHistoryRecord>({
+  name: 'PriceHistory',
+  tableName: 'price_history',
+  columns: {
+    instrumentId: { type: 'uuid', primary: true, name: 'instrument_id' },
+    date: { type: 'date', primary: true },
+    close: { type: 'numeric', precision: 28, scale: 10 },
     source: { type: 'text' },
     fetchedAt: { type: 'timestamptz', name: 'fetched_at', createDate: true },
   },

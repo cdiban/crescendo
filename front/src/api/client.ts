@@ -50,6 +50,12 @@ export type FxRate = Schemas['FxRate'];
 export type Preferences = Schemas['Preferences'];
 export type PreferencesUpdate = Body<'updatePreferences'>;
 export type PortfolioSummaryQuery = Query<'getPortfolioSummary'>;
+export type Quote = Schemas['Quote'];
+export type ManualPriceInput = Body<'setManualPrice'>;
+export type InstrumentPriceQuery = Query<'listInstrumentPrices'>;
+export type PortfolioHistoryQuery = Query<'getPortfolioHistory'>;
+export type PortfolioHistory = Json<'getPortfolioHistory', 200>;
+export type PortfolioHistoryPoint = Schemas['PortfolioHistoryPoint'];
 export type TradeQuery = Query<'listTrades'>;
 export type DividendQuery = Query<'listDividends'>;
 export type DividendSummaryQuery = Query<'getDividendSummary'>;
@@ -145,6 +151,11 @@ export function createApi(options: ApiOptions = {}) {
     createInstrument: async (body: InstrumentCreate) => (await request('POST', '/instruments', body)) as Instrument,
     updateInstrument: async (id: string, body: InstrumentUpdate) =>
       (await request('PATCH', `/instruments/${seg(id)}`, body)) as Instrument,
+    listInstrumentPrices: async (id: string, query: InstrumentPriceQuery = {}) =>
+      (await request('GET', `/instruments/${seg(id)}/prices`, undefined, query)) as Json<'listInstrumentPrices', 200>,
+    /** Precio manual de una fecha: es global (catálogo compartido), no sólo del usuario. */
+    setManualPrice: async (id: string, body: ManualPriceInput) =>
+      (await request('PUT', `/instruments/${seg(id)}/prices`, body)) as Instrument,
 
     // ── Cuentas ──
     listAccounts: async () => (await request('GET', '/accounts')) as Json<'listAccounts', 200>,
@@ -188,6 +199,9 @@ export function createApi(options: ApiOptions = {}) {
     listPositions: async (query: PositionQuery = {}) => (await request('GET', '/positions', undefined, query)) as PositionList,
     getPortfolioSummary: async (query: PortfolioSummaryQuery = {}) =>
       (await request('GET', '/portfolio/summary', undefined, query)) as PortfolioSummary,
+    /** Serie histórica del portafolio (base de los gráficos de la Fase 4). */
+    getPortfolioHistory: async (query: PortfolioHistoryQuery = {}) =>
+      (await request('GET', '/portfolio/history', undefined, query)) as PortfolioHistory,
 
     // ── Tipos de cambio y preferencias ──
     getLatestFxRates: async () => (await request('GET', '/fx-rates/latest')) as Json<'getLatestFxRates', 200>,

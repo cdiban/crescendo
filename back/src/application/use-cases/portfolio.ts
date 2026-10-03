@@ -6,7 +6,12 @@ import type { Dividend, DividendStatus } from '../../domain/dividend.ts';
 import { FX_CURRENCIES, FxTable } from '../../domain/fx.ts';
 import type { Instrument, InstrumentType } from '../../domain/instrument.ts';
 import { computeHoldings, type Holding } from '../../domain/positions.ts';
-import { cashFxEffect, exposureWeights, type Exposure } from '../../domain/reporting.ts';
+import { cashFxEffect, exposureWeights, WEIGHT_SCALE, type Exposure } from '../../domain/reporting.ts';
+import type { PriceSource } from '../../domain/market-data.ts';
+import { computePortfolioHistory, sampleDates, type HistoryPoint } from '../../domain/portfolio-history.ts';
+import { reportingMarketValue, valuePosition } from '../../domain/valuation.ts';
+import { ValidationError } from '../errors.ts';
+import { closeOnOrBefore, resolvePrice, type CurrentPrice } from './pricing.ts';
 import { NotFoundError } from '../errors.ts';
 import type { Clock } from '../ports/clock.ts';
 import type { Repositories } from '../ports/repositories.ts';
@@ -29,6 +34,10 @@ export type ReportingAmounts = {
   realizedGain: Decimal;
   dividendsNet: Decimal;
   expectedAnnualIncomeGross: Decimal | null;
+  /** (v0.4) Con precio: marketValue − costBasis = unrealizedGain = priceEffect + fxEffect. */
+  marketValue: Decimal | null;
+  priceEffect: Decimal | null;
+  unrealizedGain: Decimal | null;
 };
 
 export type PositionView = {
@@ -52,6 +61,15 @@ export type PositionView = {
   firstTradeDate: string;
   paymentMonths: number[];
   reporting: ReportingAmounts;
+  marketPrice: Decimal | null;
+  priceAsOf: Date | null;
+  priceSource: PriceSource | null;
+  marketValue: Decimal | null;
+  unrealizedGain: Decimal | null;
+  unrealizedReturn: Decimal | null;
+  totalReturn: Decimal | null;
+  currentYield: Decimal | null;
+  dayChange: Decimal | null;
 };
 
 export type PositionTotals = {
@@ -61,6 +79,9 @@ export type PositionTotals = {
   dividendsGross: Decimal;
   dividendsNet: Decimal;
   expectedAnnualIncomeGross: Decimal;
+  marketValue: Decimal;
+  unrealizedGain: Decimal;
+  pricedCoverage: Decimal;
 };
 
 export type PositionsResult = {
@@ -86,9 +107,30 @@ export type PortfolioSummary = {
   cash: Decimal;
   fxEffect: { positions: Decimal; cash: Decimal; total: Decimal };
   realizedGain: Decimal;
-  dividends: { netYearToDate: Decimal; netLast12Months: Decimal; netTotal: Decimal; expectedAnnualGross: Decimal };
+  dividends: { netYearToDate: Decimal; netLast12Months: Decimal; netTotal: Decimal; expectedAnnualGross: Decimal; currentYield: Decimal | null };
   exposure: Exposure[];
+  marketValue: Decimal;
+  netWorth: Decimal;
+  priceEffect: Decimal;
+  unrealizedGain: Decimal;
+  totalGain: Decimal;
+  pricedCoverage: Decimal;
+  pricesAsOf: Date | null;
 };
+
+export type HistoryQuery = {
+  reportingCurrency?: Currency | undefined;
+  from?: string | undefined;
+  to?: string | undefined;
+  interval: 'day' | 'week' | 'month';
+};
+
+export const MAX_HISTORY_POINTS = 4000;
+
+/** Fracción del costo con precio (1 si no hay costo). */
+function coverage(priced: Decimal, total: Decimal): Decimal {
+  return total.isZero() ? Decimal.ONE : priced.div(total, WEIGHT_SCALE);
+}
 
 const twelveZeros = () => Array.from({ length: 12 }, () => Decimal.ZERO);
 const QUANTITY_SCALE = 10;
@@ -107,6 +149,7 @@ function mergeByInstrument(holdings: Row[]): Row[] {
     m.quantity = m.quantity.add(h.quantity);
     m.costBasis = m.costBasis.add(h.costBasis);
     m.realizedGain = m.realizedGain.add(h.realizedGain);
+    m.totalBought = m.totalBought.add(h.totalBought);
     m.reporting.costBasis = m.reporting.costBasis.add(h.reporting.costBasis);
     m.reporting.realizedGain = m.reporting.realizedGain.add(h.reporting.realizedGain);
     if (h.firstTradeDate < m.firstTradeDate) m.firstTradeDate = h.firstTradeDate;
@@ -150,7 +193,12 @@ class Reporter {
 
 function sumReporting(currency: Currency, rows: ReportingAmounts[]): ReportingAmounts {
   const expected = rows.map((r) => r.expectedAnnualIncomeGross).filter((x): x is Decimal => x !== null);
+  const priced = rows.filter((r) => r.marketValue !== null);
+  const sumOrNull = (pick: (r: ReportingAmounts) => Decimal | null) => (priced.length === 0 ? null : Decimal.sum(priced.map((r) => pick(r)!)));
   return {
+    marketValue: sumOrNull((r) => r.marketValue),
+    priceEffect: sumOrNull((r) => r.priceEffect),
+    unrealizedGain: sumOrNull((r) => r.unrealizedGain),
     currency,
     costBasis: Decimal.sum(rows.map((r) => r.costBasis)),
     costBasisAtCurrentRate: Decimal.sum(rows.map((r) => r.costBasisAtCurrentRate)),
@@ -193,13 +241,16 @@ export class Portfolio {
     const perAccount = computeHoldings(trades, asOf, {
       toReporting: (instrumentId, amount, date) => rep.atDate(amount, instruments.get(instrumentId)!.currency, date),
     }) as Row[];
+    const ids = [...instruments.keys()];
+    const [quotes, closes] = await Promise.all([r.prices.quotes(ids), r.prices.latestCloses(ids, asOf)]);
+    const prices = new Map(ids.map((id) => [id, resolvePrice(quotes.get(id), closes.get(id), asOf)]));
     const holdings = query.groupBy === 'instrument' ? mergeByInstrument(perAccount) : perAccount;
     const windowStart = oneYearBefore(asOf);
 
     const views = holdings.map((h) => {
       const instrument = instruments.get(h.instrumentId)!;
       const own = dividends.filter((d) => d.instrumentId === h.instrumentId && (h.accountId === null || d.accountId === h.accountId));
-      return this.#position(h, instrument, own, windowStart, rep);
+      return this.#position(h, instrument, own, windowStart, rep, prices.get(h.instrumentId) ?? null);
     });
     return { views, instruments };
   }
@@ -229,6 +280,12 @@ export class Portfolio {
           dividendsGross: Decimal.sum(rows.map((p) => p.dividendsGross)),
           dividendsNet: Decimal.sum(rows.map((p) => p.dividendsNet)),
           expectedAnnualIncomeGross: Decimal.sum(rows.map((p) => p.expectedAnnualIncomeGross).filter((x): x is Decimal => x !== null)),
+          marketValue: Decimal.sum(rows.map((p) => p.marketValue).filter((x): x is Decimal => x !== null)),
+          unrealizedGain: Decimal.sum(rows.map((p) => p.unrealizedGain).filter((x): x is Decimal => x !== null)),
+          pricedCoverage: coverage(
+            Decimal.sum(rows.filter((p) => p.marketValue !== null).map((p) => p.costBasis)),
+            Decimal.sum(rows.map((p) => p.costBasis)),
+          ),
         };
       });
       return {
@@ -241,12 +298,33 @@ export class Portfolio {
     });
   }
 
-  #position(h: Row, instrument: Instrument, dividends: Dividend[], windowStart: string, rep: Reporter): PositionView {
+  #position(h: Row, instrument: Instrument, dividends: Dividend[], windowStart: string, rep: Reporter, price: CurrentPrice | null): PositionView {
     const adps = instrument.annualDividendPerShare;
     const months = new Set(dividends.filter((d) => d.paymentDate > windowStart).map((d) => monthOf(d.paymentDate)));
     const expected = adps === null ? null : roundAmount(h.quantity.mul(adps));
     const costBasisAtCurrentRate = roundAmount(rep.atCurrent(h.costBasis, instrument.currency));
+    const dividendsNet = Decimal.sum(dividends.map((d) => d.netAmount));
+    const valuation = valuePosition({
+      quantity: h.quantity,
+      costBasis: h.costBasis,
+      realizedGain: h.realizedGain,
+      dividendsNet,
+      totalBought: h.totalBought,
+      annualDividendPerShare: adps,
+      price: price?.price ?? null,
+      previousClose: price?.previousClose ?? null,
+    });
+    const market = reportingMarketValue({
+      marketValue: valuation.marketValue,
+      toCurrent: (amount) => rep.atCurrent(amount, instrument.currency),
+      costBasis: h.reporting.costBasis,
+      costBasisAtCurrentRate,
+    });
     return {
+      marketPrice: price?.price ?? null,
+      priceAsOf: price?.asOf ?? null,
+      priceSource: price?.source ?? null,
+      ...valuation,
       accountId: h.accountId,
       instrumentId: instrument.id,
       symbol: instrument.symbol,
@@ -260,7 +338,7 @@ export class Portfolio {
       costBasis: h.costBasis,
       realizedGain: h.realizedGain,
       dividendsGross: Decimal.sum(dividends.map((d) => d.grossAmount)),
-      dividendsNet: Decimal.sum(dividends.map((d) => d.netAmount)),
+      dividendsNet,
       annualDividendPerShare: adps,
       expectedAnnualIncomeGross: expected,
       yieldOnCost: adps === null || h.averageCost.isZero() ? null : adps.div(h.averageCost, RATE_SCALE),
@@ -275,6 +353,7 @@ export class Portfolio {
         realizedGain: h.reporting.realizedGain,
         dividendsNet: roundAmount(Decimal.sum(dividends.map((d) => rep.atDate(d.netAmount, d.currency, d.paymentDate)))),
         expectedAnnualIncomeGross: expected === null ? null : roundAmount(rep.atCurrent(expected, instrument.currency)),
+        ...market,
       },
     };
   }
@@ -310,10 +389,25 @@ export class Portfolio {
         ...cash.map((c) => ({ currency: c.currency, amount: c.balanceAtCurrentRate })),
       ]);
 
+      const priced = open.filter((p) => p.reporting.marketValue !== null);
+      const marketValue = Decimal.sum(priced.map((p) => p.reporting.marketValue!));
+      const priceEffect = Decimal.sum(priced.map((p) => p.reporting.priceEffect!));
+      const unrealizedGain = Decimal.sum(priced.map((p) => p.reporting.unrealizedGain!));
+      const netWorth = marketValue.add(cashTotal);
+      const pricesAsOf = priced.map((p) => p.priceAsOf!).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+      const expectedAnnualGross = positions.expectedAnnualIncomeGross ?? Decimal.ZERO;
+
       return {
         reportingCurrency: rep.currency,
         asOf,
         fxAsOf: rep.fxAsOf([...views.map((p) => p.currency), ...cash.map((c) => c.currency)]),
+        marketValue,
+        netWorth,
+        priceEffect,
+        unrealizedGain,
+        totalGain: netWorth.sub(contributed),
+        pricedCoverage: coverage(Decimal.sum(priced.map((p) => p.reporting.costBasis)), positions.costBasis),
+        pricesAsOf,
         contributedCapital: contributed,
         costBasis: positions.costBasis,
         costBasisAtCurrentRate: positions.costBasisAtCurrentRate,
@@ -324,10 +418,48 @@ export class Portfolio {
           netYearToDate: netAt(dividends.filter((d) => d.paymentDate >= yearStart)),
           netLast12Months: netAt(dividends.filter((d) => d.paymentDate > windowStart)),
           netTotal: netAt(dividends),
-          expectedAnnualGross: positions.expectedAnnualIncomeGross ?? Decimal.ZERO,
+          expectedAnnualGross,
+          currentYield: marketValue.isZero() ? null : expectedAnnualGross.div(marketValue, RATE_SCALE),
         },
         exposure,
       };
+    });
+  }
+
+  /**
+   * Serie del portafolio en moneda de reporte, calculada a partir de operaciones, caja, dividendos,
+   * cierres y tipos de cambio (no se guarda: siempre refleja las ediciones).
+   */
+  history(userId: string, query: HistoryQuery): Promise<{ reportingCurrency: Currency; items: HistoryPoint[] }> {
+    const to = query.to ?? this.#clock.today();
+    return this.#uow.read(async (r) => {
+      const trades = await r.trades.listByUser(userId);
+      const from = query.from ?? trades[0]?.tradeDate ?? to;
+      if (from > to) throw new ValidationError([{ field: 'from', message: 'Debe ser ≤ to' }]);
+      const dates = sampleDates(from, to, query.interval);
+      if (dates.length > MAX_HISTORY_POINTS) {
+        throw new ValidationError([{ field: 'from', message: `La serie supera ${MAX_HISTORY_POINTS} puntos: acota el rango o usa week/month` }]);
+      }
+      const rep = await this.#reporter(r, userId, query.reportingCurrency, to);
+      const ids = [...new Set(trades.map((t) => t.instrumentId))];
+      const [instruments, movements, dividends, closes, quotes] = await Promise.all([
+        r.instruments.findByIds(ids),
+        r.cashMovements.listByUser(userId, { to }),
+        r.dividends.listByUser(userId, { status: 'PAID', to }),
+        r.prices.closesUpTo(ids, to),
+        r.prices.quotes(ids),
+      ]);
+      const currency = new Map(instruments.map((i) => [i.id, i.currency]));
+      const items = computePortfolioHistory({
+        dates,
+        trades,
+        currencyOf: (id) => currency.get(id)!,
+        movements,
+        dividends,
+        priceAt: (id, date) => resolvePrice(quotes.get(id), closeOnOrBefore(closes.get(id) ?? [], date), date)?.price ?? null,
+        toReporting: (amount, c, date) => rep.atDate(amount, c, date),
+      });
+      return { reportingCurrency: rep.currency, items };
     });
   }
 

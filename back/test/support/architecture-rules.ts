@@ -14,7 +14,7 @@ const COMPOSITION_ROOT = 'composition.ts';
  * el resto de interfaces/ sigue sin
  * poder llegar a infrastructure/ ni a composition.ts.
  */
-const ENTRYPOINTS = new Set(['main.ts', 'worker.ts', 'interfaces/cli/create-user.ts', 'interfaces/cli/import-bundle.ts', 'interfaces/cli/sync-fx.ts']);
+const ENTRYPOINTS = new Set(['main.ts', 'worker.ts', 'interfaces/cli/create-user.ts', 'interfaces/cli/import-bundle.ts', 'interfaces/cli/sync-fx.ts', 'interfaces/cli/sync-prices.ts']);
 const PERSISTENCE_PACKAGES = new Set(['typeorm', 'pg']);
 
 const ALLOWED_INTERNAL: Record<Layer, ReadonlySet<Layer>> = {

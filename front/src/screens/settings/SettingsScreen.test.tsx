@@ -87,8 +87,10 @@ describe('SettingsScreen — instrumentos', () => {
     await screen.findByRole('region', { name: 'Lista de instrumentos' });
 
     expect(calls(fetchMock)).toContain('GET /api/v1/instruments?limit=100&offset=0');
-    expect(text(rowOf('Lista de instrumentos', /^KO/))).toBe('KOUSCoca-ColaAcciónUSDConsumer / Beverages15% (mercado)US$2,04Editar');
-    expect(text(rowOf('Lista de instrumentos', /^BITO/))).toBe('BITOUSBITOETFUSD—30%—Editar');
+    expect(text(rowOf('Lista de instrumentos', /^KO/))).toMatch(
+      /^KOUSCoca-ColaAcciónUSDConsumer \/ BeveragesKOUS\$68,2003-10-2026 \d\d:\d\d · Proveedor15% \(mercado\)US\$2,04EditarRegistrar precio$/,
+    );
+    expect(text(rowOf('Lista de instrumentos', /^BITO/))).toBe('BITOUSBITOETFUSD—BITO-X(personalizado)—30%—EditarRegistrar precio');
 
     fireEvent.change(screen.getByLabelText('Buscar instrumento'), { target: { value: 'ko' } });
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
@@ -112,9 +114,56 @@ describe('SettingsScreen — instrumentos', () => {
 
     await vi.waitFor(() => expect(calls(fetchMock)).toContain(`PATCH /api/v1/instruments/${BITO}`));
     expect(lastBody(fetchMock, `PATCH /api/v1/instruments/${BITO}`)).toEqual({
-      name: 'BITO', type: 'ETF', sector: 'Crypto', industry: null, withholdingRate: null, annualDividendPerShare: '1.2',
+      name: 'BITO', type: 'ETF', sector: 'Crypto', industry: null, withholdingRate: null, annualDividendPerShare: '1.2', priceSymbol: 'BITO-X',
     });
     void KO;
+  });
+
+  it('edita el símbolo del proveedor; vacío vuelve al derivado (null)', async () => {
+    const fetchMock = mockFetch(routes([{ method: 'PATCH', path: `/api/v1/instruments/${BITO}`, status: 200, body: instruments[2] }]));
+    render(<SettingsScreen api={createApi()} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Instrumentos' }));
+    await screen.findByRole('region', { name: 'Lista de instrumentos' });
+
+    fireEvent.click(within(rowOf('Lista de instrumentos', /^BITO/)).getByRole('button', { name: 'Editar' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Editar BITO' }));
+    const field = dialog.getByLabelText('Símbolo en el proveedor') as HTMLInputElement;
+    expect(field.value).toBe('BITO-X');
+    fireEvent.change(field, { target: { value: '  ' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Guardar' }));
+
+    await vi.waitFor(() => expect(calls(fetchMock)).toContain(`PATCH /api/v1/instruments/${BITO}`));
+    expect(lastBody(fetchMock, `PATCH /api/v1/instruments/${BITO}`)).toMatchObject({ priceSymbol: null });
+  });
+
+  it('registra un precio manual (global) con PUT y valida el monto', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-03T12:00:00'));
+    try {
+      const fetchMock = mockFetch(routes([{ method: 'PUT', path: `/api/v1/instruments/${KO}/prices`, status: 200, body: instruments[1] }]));
+      render(<SettingsScreen api={createApi()} />);
+      fireEvent.click(await screen.findByRole('tab', { name: 'Instrumentos' }));
+      await screen.findByRole('region', { name: 'Lista de instrumentos' });
+
+      fireEvent.click(within(rowOf('Lista de instrumentos', /^KO/)).getByRole('button', { name: 'Registrar precio' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Precio manual de KO' });
+      expect(text(dialog)).toMatch(/global.*todos los usuarios/);
+      const d = within(dialog);
+      expect((d.getByLabelText('Fecha') as HTMLInputElement).value).toBe('2026-10-03');
+
+      fireEvent.change(d.getByLabelText('Precio (USD)'), { target: { value: '0' } });
+      fireEvent.click(d.getByRole('button', { name: 'Registrar precio' }));
+      expect((await d.findByRole('alert')).textContent).toMatch(/mayor que 0/);
+      expect(calls(fetchMock).some((c) => c.startsWith('PUT'))).toBe(false);
+
+      fireEvent.change(d.getByLabelText('Precio (USD)'), { target: { value: '69,5' } });
+      fireEvent.click(d.getByRole('button', { name: 'Registrar precio' }));
+      await vi.waitFor(() => expect(calls(fetchMock)).toContain(`PUT /api/v1/instruments/${KO}/prices`));
+      expect(lastBody(fetchMock, `PUT /api/v1/instruments/${KO}/prices`)).toEqual({ date: '2026-10-03', price: '69.5' });
+      await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('crea un instrumento normalizando el símbolo y muestra CONFLICT si ya existe', async () => {

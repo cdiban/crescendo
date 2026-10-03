@@ -65,6 +65,9 @@ describe('catálogo', () => {
         withholdingRate: null,
         effectiveWithholdingRate: '0.15',
         annualDividendPerShare: '2.04',
+        priceSymbol: null,
+        effectivePriceSymbol: 'KO',
+        lastPrice: null,
       },
     );
     assert.deepEqual(await expectStatus(await ana.get(`/instruments/${i.id}`), 200), i);

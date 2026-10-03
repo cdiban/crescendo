@@ -160,3 +160,33 @@ describe('cliente API — Fase 2', () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/v1/portfolio/summary?reportingCurrency=CLP', '/api/v1/fx-rates/latest']);
   });
 });
+
+describe('cliente API — Fase 3', () => {
+  it('lista los cierres de un instrumento y registra un precio manual con PUT', async () => {
+    const fetchMock = mockFetch([
+      { method: 'GET', path: '/api/v1/instruments/i1/prices', status: 200, body: { instrumentId: 'i1', currency: 'CLP', items: [] } },
+      { method: 'PUT', path: '/api/v1/instruments/i1/prices', status: 200, body: { id: 'i1' } },
+    ]);
+    const api = createApi();
+
+    await api.listInstrumentPrices('i1', { from: '2026-01-01' });
+    await api.setManualPrice('i1', { date: '2026-10-03', price: '2701' });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/v1/instruments/i1/prices?from=2026-01-01');
+    expect(fetchMock.mock.calls[1]![1]?.method).toBe('PUT');
+    expect(fetchMock.mock.calls[1]![1]?.body).toBe('{"date":"2026-10-03","price":"2701"}');
+  });
+
+  it('pide la serie histórica del portafolio con intervalo y moneda', async () => {
+    const point = {
+      date: '2026-09-30', marketValue: '64000.5', costBasis: '61570.59', cash: '3343.6', contributedCapital: '60436.52',
+      dividendsNetCumulative: '4194.05', realizedGainCumulative: '308.44', unpricedAtCost: '0',
+    };
+    const fetchMock = mockFetch([{ method: 'GET', path: '/api/v1/portfolio/history', status: 200, body: { reportingCurrency: 'USD', items: [point] } }]);
+
+    const history = await createApi().getPortfolioHistory({ reportingCurrency: 'USD', interval: 'month', from: '2025-01-01' });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe('/api/v1/portfolio/history?reportingCurrency=USD&interval=month&from=2025-01-01');
+    expect(history.items[0]).toEqual(point);
+  });
+});

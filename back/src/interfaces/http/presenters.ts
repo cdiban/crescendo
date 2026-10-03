@@ -1,6 +1,7 @@
 import type { CashMovement } from '../../domain/cash-movement.ts';
 import type { Decimal } from '../../domain/decimal.ts';
 import type { Market } from '../../domain/market.ts';
+import type { HistoryPoint } from '../../domain/portfolio-history.ts';
 import type { AccountView } from '../../application/use-cases/accounts.ts';
 import type { CashTransferView } from '../../application/use-cases/cash.ts';
 import type { InstrumentView } from '../../application/use-cases/catalog.ts';
@@ -40,6 +41,17 @@ export const presentInstrument = (i: InstrumentView) => ({
   withholdingRate: sn(i.withholdingRate),
   effectiveWithholdingRate: s(i.effectiveWithholdingRate),
   annualDividendPerShare: sn(i.annualDividendPerShare),
+  priceSymbol: i.priceSymbol,
+  effectivePriceSymbol: i.effectivePriceSymbol,
+  lastPrice: i.lastPrice
+    ? {
+        price: s(i.lastPrice.price),
+        currency: i.lastPrice.currency,
+        asOf: i.lastPrice.asOf.toISOString(),
+        source: i.lastPrice.source,
+        previousClose: sn(i.lastPrice.previousClose),
+      }
+    : null,
 });
 
 export const presentAccount = (a: AccountView) => ({
@@ -119,6 +131,9 @@ export const presentReporting = (r: ReportingAmounts) => ({
   realizedGain: s(r.realizedGain),
   dividendsNet: s(r.dividendsNet),
   expectedAnnualIncomeGross: sn(r.expectedAnnualIncomeGross),
+  marketValue: sn(r.marketValue),
+  priceEffect: sn(r.priceEffect),
+  unrealizedGain: sn(r.unrealizedGain),
 });
 
 export const presentPosition = (p: PositionView) => ({
@@ -142,6 +157,15 @@ export const presentPosition = (p: PositionView) => ({
   firstTradeDate: p.firstTradeDate,
   paymentMonths: p.paymentMonths,
   reporting: presentReporting(p.reporting),
+  marketPrice: sn(p.marketPrice),
+  priceAsOf: p.priceAsOf?.toISOString() ?? null,
+  priceSource: p.priceSource,
+  marketValue: sn(p.marketValue),
+  unrealizedGain: sn(p.unrealizedGain),
+  unrealizedReturn: sn(p.unrealizedReturn),
+  totalReturn: sn(p.totalReturn),
+  currentYield: sn(p.currentYield),
+  dayChange: sn(p.dayChange),
 });
 
 export const presentPositions = (r: PositionsResult) => ({
@@ -155,6 +179,9 @@ export const presentPositions = (r: PositionsResult) => ({
     dividendsGross: s(t.dividendsGross),
     dividendsNet: s(t.dividendsNet),
     expectedAnnualIncomeGross: s(t.expectedAnnualIncomeGross),
+    marketValue: s(t.marketValue),
+    unrealizedGain: s(t.unrealizedGain),
+    pricedCoverage: s(t.pricedCoverage),
   })),
   total: presentReporting(r.total),
 });
@@ -169,11 +196,19 @@ export const presentPortfolioSummary = (p: PortfolioSummary) => ({
   cash: s(p.cash),
   fxEffect: { positions: s(p.fxEffect.positions), cash: s(p.fxEffect.cash), total: s(p.fxEffect.total) },
   realizedGain: s(p.realizedGain),
+  marketValue: s(p.marketValue),
+  netWorth: s(p.netWorth),
+  priceEffect: s(p.priceEffect),
+  unrealizedGain: s(p.unrealizedGain),
+  totalGain: s(p.totalGain),
+  pricedCoverage: s(p.pricedCoverage),
+  pricesAsOf: p.pricesAsOf?.toISOString() ?? null,
   dividends: {
     netYearToDate: s(p.dividends.netYearToDate),
     netLast12Months: s(p.dividends.netLast12Months),
     netTotal: s(p.dividends.netTotal),
     expectedAnnualGross: s(p.dividends.expectedAnnualGross),
+    currentYield: sn(p.dividends.currentYield),
   },
   exposure: p.exposure.map((e) => ({ currency: e.currency, amount: s(e.amount), weight: s(e.weight) })),
 });
@@ -207,4 +242,15 @@ export const presentSummary = (summary: DividendSummary) => ({
 export const presentPage = <T, U>(page: { items: T[]; total: number }, present: (item: T) => U) => ({
   items: page.items.map(present),
   total: page.total,
+});
+
+export const presentHistoryPoint = (p: HistoryPoint) => ({
+  date: p.date,
+  marketValue: s(p.marketValue),
+  costBasis: s(p.costBasis),
+  cash: s(p.cash),
+  contributedCapital: s(p.contributedCapital),
+  dividendsNetCumulative: s(p.dividendsNetCumulative),
+  realizedGainCumulative: s(p.realizedGainCumulative),
+  unpricedAtCost: s(p.unpricedAtCost),
 });

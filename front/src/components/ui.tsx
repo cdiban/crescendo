@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { CircleAlert } from 'lucide-react';
 import type { Currency } from '../api/client.ts';
 import { errorMessage } from '../api/errors.ts';
-import { formatMoney } from '../lib/format.ts';
+import { formatMoney, formatSignedPercent } from '../lib/format.ts';
 import { Badge as UiBadge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -67,6 +67,16 @@ export function Signed({ amount, currency, colorPositive = false }: { amount: st
   return (
     <span data-tone={tone} className={cn(tone === 'negative' && 'text-negative', tone === 'positive' && 'text-positive')}>
       {formatMoney(amount, currency)}
+    </span>
+  );
+}
+
+/** Porcentaje con signo y color (variación del día, rentabilidad). */
+export function SignedPercent({ value }: { value: string }) {
+  const tone = isZero(value) ? undefined : value.startsWith('-') ? 'negative' : 'positive';
+  return (
+    <span data-tone={tone} className={cn(tone === 'negative' && 'text-negative', tone === 'positive' && 'text-positive')}>
+      {formatSignedPercent(value)}
     </span>
   );
 }

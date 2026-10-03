@@ -396,6 +396,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/instruments/{instrumentId}/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+            };
+            cookie?: never;
+        };
+        /** Cierres diarios del instrumento, más antiguo primero */
+        get: operations["listInstrumentPrices"];
+        /**
+         * Registra un precio manual (para instrumentos sin cobertura o para corregir)
+         * @description Guarda/reemplaza el cierre de `date` con source MANUAL. Si `date` es el más reciente disponible, también pasa a ser la cotización actual.
+         *     Un precio manual no se sobrescribe con el proveedor para esa fecha.
+         */
+        put: operations["setManualPrice"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/portfolio/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Serie histórica del portafolio en moneda de reporte (calculada, no almacenada)
+         * @description Para cada fecha del intervalo: valor de mercado (cantidad al cierre del día × último cierre en o antes × TC del día), costo vigente,
+         *     caja, capital aportado acumulado y dividendos netos acumulados, todo en moneda de reporte. Base de los gráficos de la Fase 4.
+         *     Si un instrumento en cartera no tiene ningún precio en o antes de la fecha (p. ej. sin cobertura del proveedor), en la serie se
+         *     valoriza a su costo promedio vigente (moneda original) para no subestimar el patrimonio; `unpricedAtCost` informa ese monto.
+         */
+        get: operations["getPortfolioHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/fx-rates": {
         parameters: {
             query?: never;
@@ -525,6 +572,11 @@ export interface components {
             effectiveWithholdingRate: components["schemas"]["Decimal"];
             /** @description Dividendo anual esperado por acción (manual */
             annualDividendPerShare: components["schemas"]["Decimal"] | null;
+            /** @description (v0.4) Override del símbolo en el proveedor de precios; null = derivado */
+            priceSymbol: string | null;
+            /** @description (v0.4) Símbolo usado con el proveedor (XSGO → "<SYMBOL>.SN", US → símbolo con "." reemplazado por "-"); null = sin cobertura (sólo precio manual) */
+            effectivePriceSymbol: string | null;
+            lastPrice: components["schemas"]["Quote"] | null;
         };
         InstrumentCreate: {
             /** @description Se normaliza a mayúsculas */
@@ -538,6 +590,7 @@ export interface components {
             industry?: string | null;
             withholdingRate?: components["schemas"]["Decimal"] | null;
             annualDividendPerShare?: components["schemas"]["Decimal"] | null;
+            priceSymbol?: string | null;
         };
         InstrumentUpdate: {
             name?: string;
@@ -546,6 +599,8 @@ export interface components {
             industry?: string | null;
             withholdingRate?: components["schemas"]["Decimal"] | null;
             annualDividendPerShare?: components["schemas"]["Decimal"] | null;
+            /** @description Al cambiarlo */
+            priceSymbol?: string | null;
         };
         InstrumentPage: {
             items: components["schemas"]["Instrument"][];
@@ -813,6 +868,24 @@ export interface components {
             /** @description Meses con dividendos PAID en los últimos 12 meses (equivale a "Meses de pago" del Excel) */
             paymentMonths: number[];
             reporting: components["schemas"]["ReportingAmounts"];
+            /** @description (v0.4) Moneda del instrumento */
+            marketPrice?: components["schemas"]["Decimal"] | null;
+            /** Format: date-time */
+            priceAsOf?: string | null;
+            /** @enum {string|null} */
+            priceSource?: "PROVIDER" | "MANUAL" | null;
+            /** @description quantity × marketPrice */
+            marketValue?: components["schemas"]["Decimal"] | null;
+            /** @description marketValue − costBasis (moneda original) */
+            unrealizedGain?: components["schemas"]["Decimal"] | null;
+            /** @description unrealizedGain / costBasis */
+            unrealizedReturn?: components["schemas"]["Decimal"] | null;
+            /** @description (unrealizedGain + realizedGain + dividendsNet) / costo total comprado */
+            totalReturn?: components["schemas"]["Decimal"] | null;
+            /** @description annualDividendPerShare / marketPrice */
+            currentYield?: components["schemas"]["Decimal"] | null;
+            /** @description Variación % del precio vs cierre anterior */
+            dayChange?: components["schemas"]["Decimal"] | null;
         };
         PositionTotals: {
             currency: components["schemas"]["Currency"];
@@ -822,10 +895,16 @@ export interface components {
             dividendsNet: components["schemas"]["Decimal"];
             /** @description Suma de las filas con dato (las null no suman) */
             expectedAnnualIncomeGross: components["schemas"]["Decimal"];
+            /** @description (v0.4) Suma de filas con precio */
+            marketValue: components["schemas"]["Decimal"];
+            unrealizedGain: components["schemas"]["Decimal"];
+            /** @description Fracción del costo vigente con precio disponible (1 = todas) */
+            pricedCoverage: components["schemas"]["Decimal"];
         };
         /**
          * @description Montos de una posición (o suma) en moneda de reporte. Si la moneda del instrumento = moneda de reporte, fxEffect = 0.
          *     Invariante: costBasisAtCurrentRate − costBasis = fxEffect.
+         *     (v0.4) Con precio: marketValue − costBasis = unrealizedGain = priceEffect + fxEffect.
          */
         ReportingAmounts: {
             currency: components["schemas"]["Currency"];
@@ -841,6 +920,40 @@ export interface components {
             dividendsNet: components["schemas"]["Decimal"];
             /** @description A TC actual */
             expectedAnnualIncomeGross: components["schemas"]["Decimal"] | null;
+            /** @description (v0.4) Valor de mercado (moneda original) × TC actual */
+            marketValue: components["schemas"]["Decimal"] | null;
+            /** @description (marketValue − costBasis en moneda original) × TC actual */
+            priceEffect: components["schemas"]["Decimal"] | null;
+            /** @description marketValue − costBasis (reporte) = priceEffect + fxEffect */
+            unrealizedGain: components["schemas"]["Decimal"] | null;
+        };
+        Quote: {
+            price: components["schemas"]["Decimal"];
+            currency: components["schemas"]["Currency"];
+            /**
+             * Format: date-time
+             * @description Momento de la cotización según la fuente
+             */
+            asOf: string;
+            /** @enum {string} */
+            source: "PROVIDER" | "MANUAL";
+            previousClose: components["schemas"]["Decimal"] | null;
+        };
+        PortfolioHistoryPoint: {
+            date: components["schemas"]["Date"];
+            /** @description Posiciones a precio y TC del día */
+            marketValue: components["schemas"]["Decimal"];
+            /** @description Costo vigente a TC históricos */
+            costBasis: components["schemas"]["Decimal"];
+            /** @description Caja a TC del día */
+            cash: components["schemas"]["Decimal"];
+            /** @description Acumulado a la fecha */
+            contributedCapital: components["schemas"]["Decimal"];
+            /** @description Dividendos PAID netos acumulados (a TC de cada pago) */
+            dividendsNetCumulative: components["schemas"]["Decimal"];
+            realizedGainCumulative: components["schemas"]["Decimal"];
+            /** @description Parte de marketValue valorizada al costo por falta de precio (0 si todo tiene precio) */
+            unpricedAtCost: components["schemas"]["Decimal"];
         };
         /**
          * @description Currency + CLF (Unidad de Fomento), sólo para tipos de cambio
@@ -882,12 +995,30 @@ export interface components {
                 total: components["schemas"]["Decimal"];
             };
             realizedGain: components["schemas"]["Decimal"];
+            /** @description (v0.4) Posiciones con precio */
+            marketValue: components["schemas"]["Decimal"];
+            /** @description marketValue + cash */
+            netWorth: components["schemas"]["Decimal"];
+            priceEffect: components["schemas"]["Decimal"];
+            /** @description priceEffect + fxEffect.positions (sólo posiciones con precio) */
+            unrealizedGain: components["schemas"]["Decimal"];
+            /** @description netWorth − contributedCapital (ganancia total del patrimonio */
+            totalGain: components["schemas"]["Decimal"];
+            /** @description Fracción del costo vigente con precio */
+            pricedCoverage: components["schemas"]["Decimal"];
+            /**
+             * Format: date-time
+             * @description Cotización más antigua usada (para mostrar "precios al …")
+             */
+            pricesAsOf: string | null;
             dividends: {
                 netYearToDate: components["schemas"]["Decimal"];
                 netLast12Months: components["schemas"]["Decimal"];
                 netTotal: components["schemas"]["Decimal"];
                 /** @description Σ quantity × annualDividendPerShare a TC actual */
                 expectedAnnualGross: components["schemas"]["Decimal"];
+                /** @description (v0.4) expectedAnnualGross / marketValue */
+                currentYield?: components["schemas"]["Decimal"] | null;
             };
             /** @description Distribución por moneda de (costo vigente a TC actual + caja); suma 1 */
             exposure: {
@@ -1944,6 +2075,115 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortfolioSummary"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    listInstrumentPrices: {
+        parameters: {
+            query?: {
+                /** @description Fecha mínima inclusiva */
+                from?: components["parameters"]["From"];
+                /** @description Fecha máxima inclusiva */
+                to?: components["parameters"]["To"];
+            };
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Serie (máx. 4000 puntos) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        instrumentId: string;
+                        currency: components["schemas"]["Currency"];
+                        items: {
+                            date: components["schemas"]["Date"];
+                            close: components["schemas"]["Decimal"];
+                            /** @enum {string} */
+                            source: "PROVIDER" | "MANUAL";
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setManualPrice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    date: components["schemas"]["Date"];
+                    /** @description > 0, en la moneda del instrumento */
+                    price: components["schemas"]["Decimal"];
+                };
+            };
+        };
+        responses: {
+            /** @description Instrumento actualizado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Instrument"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getPortfolioHistory: {
+        parameters: {
+            query?: {
+                /** @description Default la preferencia del usuario */
+                reportingCurrency?: components["parameters"]["ReportingCurrency"];
+                /** @description Default la primera operación del usuario */
+                from?: components["schemas"]["Date"];
+                /** @description Default hoy */
+                to?: components["schemas"]["Date"];
+                /** @description week/month: último día de cada periodo */
+                interval?: "day" | "week" | "month";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Serie (máx. 4000 puntos) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reportingCurrency: components["schemas"]["Currency"];
+                        items: components["schemas"]["PortfolioHistoryPoint"][];
+                    };
                 };
             };
             400: components["responses"]["ValidationError"];

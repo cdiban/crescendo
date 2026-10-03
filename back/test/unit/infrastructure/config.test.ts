@@ -47,6 +47,7 @@ describe('loadWorkerConfig', () => {
       sessionTtlHours: 168,
       fxBackfillFrom: '2024-01-01',
       fxSyncIntervalMinutes: 360,
+      quotesIntervalMinutes: 5,
     });
   });
 

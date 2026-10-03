@@ -7,6 +7,7 @@ import type { FxQuote } from '../../domain/fx.ts';
 import type { FetchedFxQuote } from './fx-rate-provider.ts';
 import type { Instrument, NewInstrument } from '../../domain/instrument.ts';
 import type { Market } from '../../domain/market.ts';
+import type { PriceSource } from '../../domain/market-data.ts';
 import type { NewTrade, Trade } from '../../domain/trade.ts';
 import type { Page, PageRequest } from './page.ts';
 import type { UserRepository } from './user-repository.ts';
@@ -29,7 +30,41 @@ export interface InstrumentRepository {
   /** Lanza ConflictError si ya existe símbolo + mercado. */
   add(instrument: NewInstrument): Promise<Instrument>;
   update(instrument: Instrument): Promise<void>;
+  /** Instrumentos creados desde `since` (para traer su precio aunque aún no tengan operaciones). */
+  createdSince(since: Date): Promise<Instrument[]>;
 }
+
+export type StoredQuote = {
+  price: Decimal;
+  previousClose: Decimal | null;
+  asOf: Date;
+  /** Fecha local de la bolsa. */
+  date: string;
+  source: PriceSource;
+};
+
+export type StoredClose = { date: string; close: Decimal; source: PriceSource };
+
+export interface PriceRepository {
+  quotes(instrumentIds: readonly string[]): Promise<Map<string, StoredQuote>>;
+  /** Cotización del proveedor; no pisa un MANUAL de la misma fecha o posterior. Devuelve si la guardó. */
+  saveProviderQuote(instrumentId: string, quote: Omit<StoredQuote, 'source'>): Promise<boolean>;
+  saveManualQuote(instrumentId: string, quote: Omit<StoredQuote, 'source'>): Promise<void>;
+  /** Cierres del proveedor; nunca pisan un cierre MANUAL. Devuelve cuántas filas cambiaron. */
+  saveProviderCloses(instrumentId: string, closes: ReadonlyArray<{ date: string; close: Decimal }>): Promise<number>;
+  saveManualClose(instrumentId: string, date: string, close: Decimal): Promise<void>;
+  closes(instrumentId: string, from: string, to: string): Promise<StoredClose[]>;
+  /** Cierres ≤ `to` de varios instrumentos, ascendentes por fecha (para la serie histórica). */
+  closesUpTo(instrumentIds: readonly string[], to: string): Promise<Map<string, StoredClose[]>>;
+  /** Último cierre en o antes de `date` por instrumento. */
+  latestCloses(instrumentIds: readonly string[], date: string): Promise<Map<string, StoredClose>>;
+  lastCloseDate(instrumentId: string): Promise<string | null>;
+  /** Borra cierres y cotización del proveedor (al cambiar el símbolo); conserva los MANUAL. */
+  clearProviderData(instrumentId: string): Promise<void>;
+}
+
+/** Vista global (todos los usuarios) que necesita el worker para decidir qué precios traer. */
+export type TradedInstrument = { instrumentId: string; firstTradeDate: string; open: boolean };
 
 export interface AccountRepository {
   listByUser(userId: string): Promise<Account[]>;
@@ -57,6 +92,8 @@ export interface TradeRepository {
   add(trade: NewTrade): Promise<Trade>;
   update(trade: Trade): Promise<void>;
   delete(userId: string, id: string): Promise<void>;
+  /** Global, sin filtrar por usuario: instrumentos con operaciones, su primera fecha y si alguien tiene posición abierta. */
+  tradedInstruments(): Promise<TradedInstrument[]>;
 }
 
 export type DividendQuery = {
@@ -121,4 +158,5 @@ export type Repositories = {
   dividends: DividendRepository;
   cashMovements: CashMovementRepository;
   fxRates: FxRateRepository;
+  prices: PriceRepository;
 };

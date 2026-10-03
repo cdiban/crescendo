@@ -1,9 +1,14 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { Info } from 'lucide-react';
 import type { Api, Currency, FxRate } from '../api/client.ts';
 import { DataTable } from '../components/DataTable.tsx';
 import { ErrorAlert, Loading, PageHeader, Signed } from '../components/ui.tsx';
-import { formatDate, formatMoney, formatPercent, formatRate } from '../lib/format.ts';
+import { formatDate, formatDateTime, formatMoney, formatPercent, formatRate, isOne } from '../lib/format.ts';
 import { useAsync } from '../lib/useAsync.ts';
+import { useAutoRefresh } from '../lib/useAutoRefresh.ts';
+
+/** Resumen y Posiciones se refrescan cada minuto con la pestaña visible (los precios cambian cada ~5 min). */
+export const REFRESH_MS = 60_000;
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
@@ -13,6 +18,7 @@ type Props = { api: Api; reportingCurrency: Currency };
 export function SummaryScreen({ api, reportingCurrency }: Props) {
   const summary = useAsync(() => api.getPortfolioSummary({ reportingCurrency }), [api, reportingCurrency]);
   const fx = useAsync(() => api.getLatestFxRates(), [api]);
+  useAutoRefresh(summary.reload, REFRESH_MS);
   const s = summary.data;
   const money = (amount: string) => formatMoney(amount, s?.reportingCurrency ?? reportingCurrency);
 
@@ -20,11 +26,57 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
     <>
       <PageHeader
         title="Resumen"
-        description={s && `Datos al ${formatDate(s.asOf)} · tipos de cambio al ${formatDate(s.fxAsOf)} · en ${s.reportingCurrency}`}
+        description={
+          s &&
+          [
+            `Datos al ${formatDate(s.asOf)}`,
+            s.pricesAsOf && `precios al ${formatDateTime(s.pricesAsOf)}`,
+            `tipos de cambio al ${formatDate(s.fxAsOf)}`,
+            `en ${s.reportingCurrency}`,
+          ]
+            .filter(Boolean)
+            .join(' · ')
+        }
       />
       <ErrorAlert error={summary.error} />
+      {s && !isOne(s.pricedCoverage) && (
+        <p role="note" className="flex items-start gap-2 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground">
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>
+            Sólo el {formatPercent(s.pricedCoverage)} del costo invertido tiene precio: el valor de mercado y la ganancia no realizada consideran
+            sólo esas posiciones.
+          </span>
+        </p>
+      )}
       {s ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard title="Patrimonio" hint="Valor de mercado de las posiciones + caja, al tipo de cambio actual">
+            <Stat>{money(s.netWorth)}</Stat>
+            <p className="text-xs text-muted-foreground">
+              Valor de mercado {money(s.marketValue)} + caja {money(s.cash)}
+            </p>
+          </StatCard>
+          <StatCard title="Ganancia total" hint="Incluye precio, tipo de cambio, ventas y dividendos">
+            <Stat>
+              <Signed amount={s.totalGain} currency={s.reportingCurrency} colorPositive />
+            </Stat>
+            <p className="text-xs text-muted-foreground">Patrimonio − capital aportado ({money(s.contributedCapital)})</p>
+          </StatCard>
+          <StatCard title="Ganancia no realizada" hint="Valor de mercado − costo vigente de las posiciones con precio">
+            <Stat>
+              <Signed amount={s.unrealizedGain} currency={s.reportingCurrency} colorPositive />
+            </Stat>
+            <Pairs>
+              <dt>Por precio</dt>
+              <dd>
+                <Signed amount={s.priceEffect} currency={s.reportingCurrency} colorPositive />
+              </dd>
+              <dt>Por tipo de cambio</dt>
+              <dd>
+                <Signed amount={s.fxEffect.positions} currency={s.reportingCurrency} colorPositive />
+              </dd>
+            </Pairs>
+          </StatCard>
           <StatCard title="Capital aportado" hint="Depósitos − retiros, cada uno al tipo de cambio de su fecha">
             <Stat>{money(s.contributedCapital)}</Stat>
           </StatCard>
@@ -65,6 +117,8 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
               <dd>{money(s.dividends.netTotal)}</dd>
               <dt>Esperado anual (bruto)</dt>
               <dd>{money(s.dividends.expectedAnnualGross)}</dd>
+              <dt>Yield actual</dt>
+              <dd>{s.dividends.currentYield ? formatPercent(s.dividends.currentYield) : '—'}</dd>
             </Pairs>
           </StatCard>
           <StatCard title="Exposición por moneda" hint="Costo vigente a tipo de cambio actual + caja">

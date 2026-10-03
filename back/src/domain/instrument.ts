@@ -19,6 +19,10 @@ export type Instrument = {
   /** Override de la retención del mercado; null = usa la del mercado. */
   readonly withholdingRate: Decimal | null;
   readonly annualDividendPerShare: Decimal | null;
+  /** Override del símbolo en el proveedor de precios; null = derivado del mercado. */
+  readonly priceSymbol: string | null;
+  /** Símbolo con que se cargó la historia de precios (lo mantiene el worker). */
+  readonly priceSyncedSymbol: string | null;
 };
 
 export type NewInstrument = Omit<Instrument, 'id'>;

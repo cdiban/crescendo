@@ -10,7 +10,8 @@ import type { TokenGenerator } from '../../src/application/ports/token-generator
 import type { UserRepository } from '../../src/application/ports/user-repository.ts';
 import type { FxQuote } from '../../src/domain/fx.ts';
 import type { FetchedFxQuote } from '../../src/application/ports/fx-rate-provider.ts';
-import type { FxRateRepository, Repositories } from '../../src/application/ports/repositories.ts';
+import type { FxRateRepository, PriceRepository, Repositories, StoredClose, StoredQuote } from '../../src/application/ports/repositories.ts';
+import type { Decimal } from '../../src/domain/decimal.ts';
 import type { UnitOfWork } from '../../src/application/ports/unit-of-work.ts';
 
 export class InMemoryUserRepository implements UserRepository {
@@ -124,4 +125,61 @@ export class InMemoryFxRateRepository implements FxRateRepository {
 export function inMemoryUnitOfWork(repos: Partial<Repositories>): UnitOfWork {
   const all = repos as Repositories;
   return { transaction: (work) => work(all), read: (work) => work(all) };
+}
+
+export class InMemoryPriceRepository implements PriceRepository {
+  readonly quotes_ = new Map<string, StoredQuote>();
+  readonly closesById = new Map<string, StoredClose[]>();
+
+  async quotes(ids: readonly string[]): Promise<Map<string, StoredQuote>> {
+    return new Map(ids.filter((id) => this.quotes_.has(id)).map((id) => [id, this.quotes_.get(id)!]));
+  }
+  async saveProviderQuote(id: string, q: Omit<StoredQuote, 'source'>): Promise<boolean> {
+    const cur = this.quotes_.get(id);
+    if (cur?.source === 'MANUAL' && cur.date >= q.date) return false;
+    this.quotes_.set(id, { ...q, source: 'PROVIDER' });
+    return true;
+  }
+  async saveManualQuote(id: string, q: Omit<StoredQuote, 'source'>): Promise<void> {
+    this.quotes_.set(id, { ...q, source: 'MANUAL' });
+  }
+  async saveProviderCloses(id: string, closes: ReadonlyArray<{ date: string; close: Decimal }>): Promise<number> {
+    const list = this.closesById.get(id) ?? [];
+    let changed = 0;
+    for (const c of closes) {
+      const i = list.findIndex((x) => x.date === c.date);
+      if (i >= 0 && (list[i]!.source === 'MANUAL' || list[i]!.close.eq(c.close))) continue;
+      if (i >= 0) list[i] = { ...c, source: 'PROVIDER' };
+      else list.push({ ...c, source: 'PROVIDER' });
+      changed += 1;
+    }
+    this.closesById.set(id, list.sort((a, b) => (a.date < b.date ? -1 : 1)));
+    return changed;
+  }
+  async saveManualClose(id: string, date: string, close: Decimal): Promise<void> {
+    const list = (this.closesById.get(id) ?? []).filter((c) => c.date !== date);
+    this.closesById.set(id, [...list, { date, close, source: 'MANUAL' as const }].sort((a, b) => (a.date < b.date ? -1 : 1)));
+  }
+
+  async closes(id: string, from: string, to: string): Promise<StoredClose[]> {
+    return (this.closesById.get(id) ?? []).filter((c) => c.date >= from && c.date <= to);
+  }
+  async closesUpTo(ids: readonly string[], to: string): Promise<Map<string, StoredClose[]>> {
+    return new Map(ids.map((id) => [id, (this.closesById.get(id) ?? []).filter((c) => c.date <= to)]));
+  }
+  async latestCloses(ids: readonly string[], date: string): Promise<Map<string, StoredClose>> {
+    const m = new Map<string, StoredClose>();
+    for (const id of ids) {
+      const c = (this.closesById.get(id) ?? []).filter((x) => x.date <= date).at(-1);
+      if (c) m.set(id, c);
+    }
+    return m;
+  }
+  async lastCloseDate(id: string): Promise<string | null> {
+    return this.closesById.get(id)?.at(-1)?.date ?? null;
+  }
+  async clearProviderData(id: string): Promise<void> {
+    this.closesById.set(id, (this.closesById.get(id) ?? []).filter((c) => c.source === 'MANUAL'));
+    if (this.quotes_.get(id)?.source === 'PROVIDER') this.quotes_.delete(id);
+  }
 }

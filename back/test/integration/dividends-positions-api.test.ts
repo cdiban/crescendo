@@ -313,7 +313,20 @@ describe('posiciones', () => {
           realizedGain: '60.1848',
           dividendsNet: '9.35',
           expectedAnnualIncomeGross: '23.46',
+          marketValue: null,
+          priceEffect: null,
+          unrealizedGain: null,
         },
+        // Sin cotización cargada: los campos de mercado (v0.4) son null.
+        marketPrice: null,
+        priceAsOf: null,
+        priceSource: null,
+        marketValue: null,
+        unrealizedGain: null,
+        unrealizedReturn: null,
+        totalReturn: null,
+        currentYield: null,
+        dayChange: null,
       },
     ]);
   });

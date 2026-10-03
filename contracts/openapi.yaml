@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Crescendo API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Contrato de la API de Crescendo. Fuente de verdad compartida por Crescendo Back y Crescendo Front.
     Cualquier cambio se propone al orquestador (Crescendo) antes de aplicarse.
@@ -22,6 +22,9 @@ info:
       Conversión: montos históricos (costo, aportes, dividendos cobrados, ganancia realizada) al tipo de cambio de **su fecha**;
       montos vigentes (saldos, costo "a tipo de cambio actual") al **último** tipo de cambio disponible.
       Tipo de cambio de una fecha = último publicado en o antes de esa fecha (fines de semana y feriados usan el día hábil anterior).
+    - (v0.4) Precios: "precio actual" = última cotización guardada (proveedor o manual), con su `priceAsOf`. Precio de una fecha pasada =
+      último cierre en o antes de esa fecha. Si una posición no tiene precio, sus campos de mercado son null y no suman en los totales
+      (los totales informan `pricedCoverage`).
 servers:
   - url: /api/v1
 tags:
@@ -35,6 +38,7 @@ tags:
   - name: portfolio
   - name: fx
   - name: preferences
+  - name: market
 paths:
   /health:
     get:
@@ -660,6 +664,98 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/BusinessRule' }
 
+  /instruments/{instrumentId}/prices:
+    parameters:
+      - $ref: '#/components/parameters/InstrumentId'
+    get:
+      tags: [market]
+      operationId: listInstrumentPrices
+      summary: Cierres diarios del instrumento, más antiguo primero
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Serie (máx. 4000 puntos)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instrumentId, currency, items]
+                properties:
+                  instrumentId: { type: string, format: uuid }
+                  currency: { $ref: '#/components/schemas/Currency' }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [date, close, source]
+                      properties:
+                        date: { $ref: '#/components/schemas/Date' }
+                        close: { $ref: '#/components/schemas/Decimal' }
+                        source: { type: string, enum: [PROVIDER, MANUAL] }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [market]
+      operationId: setManualPrice
+      summary: Registra un precio manual (para instrumentos sin cobertura o para corregir)
+      description: |
+        Guarda/reemplaza el cierre de `date` con source MANUAL. Si `date` es el más reciente disponible, también pasa a ser la cotización actual.
+        Un precio manual no se sobrescribe con el proveedor para esa fecha.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, price]
+              additionalProperties: false
+              properties:
+                date: { $ref: '#/components/schemas/Date' }
+                price: { $ref: '#/components/schemas/Decimal', description: '> 0, en la moneda del instrumento' }
+      responses:
+        '200':
+          description: Instrumento actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Instrument' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /portfolio/history:
+    get:
+      tags: [portfolio]
+      operationId: getPortfolioHistory
+      summary: Serie histórica del portafolio en moneda de reporte (calculada, no almacenada)
+      description: |
+        Para cada fecha del intervalo: valor de mercado (cantidad al cierre del día × último cierre en o antes × TC del día), costo vigente,
+        caja, capital aportado acumulado y dividendos netos acumulados, todo en moneda de reporte. Base de los gráficos de la Fase 4.
+        Si un instrumento en cartera no tiene ningún precio en o antes de la fecha (p. ej. sin cobertura del proveedor), en la serie se
+        valoriza a su costo promedio vigente (moneda original) para no subestimar el patrimonio; `unpricedAtCost` informa ese monto.
+      parameters:
+        - $ref: '#/components/parameters/ReportingCurrency'
+        - { name: from, in: query, schema: { $ref: '#/components/schemas/Date' }, description: Default la primera operación del usuario }
+        - { name: to, in: query, schema: { $ref: '#/components/schemas/Date' }, description: Default hoy }
+        - { name: interval, in: query, schema: { type: string, enum: [day, week, month], default: day }, description: 'week/month: último día de cada periodo' }
+      responses:
+        '200':
+          description: Serie (máx. 4000 puntos)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reportingCurrency, items]
+                properties:
+                  reportingCurrency: { $ref: '#/components/schemas/Currency' }
+                  items: { type: array, items: { $ref: '#/components/schemas/PortfolioHistoryPoint' } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
   /fx-rates:
     get:
       tags: [fx]
@@ -814,7 +910,7 @@ components:
       enum: [STOCK, ETF, FUND, REIT]
     Instrument:
       type: object
-      required: [id, symbol, marketCode, name, type, currency, sector, industry, withholdingRate, effectiveWithholdingRate, annualDividendPerShare]
+      required: [id, symbol, marketCode, name, type, currency, sector, industry, withholdingRate, effectiveWithholdingRate, annualDividendPerShare, priceSymbol, effectivePriceSymbol, lastPrice]
       properties:
         id: { type: string, format: uuid }
         symbol: { type: string, examples: [PEHUENCHE] }
@@ -827,6 +923,9 @@ components:
         withholdingRate: { description: Override de retención; null = usa la del mercado, oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
         effectiveWithholdingRate: { $ref: '#/components/schemas/Decimal' }
         annualDividendPerShare: { description: Dividendo anual esperado por acción (manual, moneda del instrumento), oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+        priceSymbol: { type: [string, 'null'], description: '(v0.4) Override del símbolo en el proveedor de precios; null = derivado' }
+        effectivePriceSymbol: { type: [string, 'null'], description: '(v0.4) Símbolo usado con el proveedor (XSGO → "<SYMBOL>.SN", US → símbolo con "." reemplazado por "-"); null = sin cobertura (sólo precio manual)' }
+        lastPrice: { oneOf: [{ $ref: '#/components/schemas/Quote' }, { type: 'null' }] }
     InstrumentCreate:
       type: object
       required: [symbol, marketCode, name, type]
@@ -841,6 +940,7 @@ components:
         industry: { type: [string, 'null'], maxLength: 60 }
         withholdingRate: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
         annualDividendPerShare: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+        priceSymbol: { type: [string, 'null'], maxLength: 30 }
     InstrumentUpdate:
       type: object
       additionalProperties: false
@@ -852,6 +952,7 @@ components:
         industry: { type: [string, 'null'], maxLength: 60 }
         withholdingRate: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
         annualDividendPerShare: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+        priceSymbol: { type: [string, 'null'], maxLength: 30, description: Al cambiarlo, el worker vuelve a cargar historia y cotización }
     InstrumentPage:
       type: object
       required: [items, total]
@@ -1111,9 +1212,18 @@ components:
         firstTradeDate: { $ref: '#/components/schemas/Date' }
         paymentMonths: { type: array, items: { type: integer, minimum: 1, maximum: 12 }, description: Meses con dividendos PAID en los últimos 12 meses (equivale a "Meses de pago" del Excel) }
         reporting: { $ref: '#/components/schemas/ReportingAmounts' }
+        marketPrice: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: '(v0.4) Moneda del instrumento' }
+        priceAsOf: { type: [string, 'null'], format: date-time }
+        priceSource: { type: [string, 'null'], enum: [PROVIDER, MANUAL, null] }
+        marketValue: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: quantity × marketPrice }
+        unrealizedGain: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: marketValue − costBasis (moneda original) }
+        unrealizedReturn: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: unrealizedGain / costBasis, fracción }
+        totalReturn: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: (unrealizedGain + realizedGain + dividendsNet) / costo total comprado, fracción (equivale a "Rentabilidad" del Excel) }
+        currentYield: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: annualDividendPerShare / marketPrice, fracción }
+        dayChange: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: Variación % del precio vs cierre anterior, fracción }
     PositionTotals:
       type: object
-      required: [currency, costBasis, realizedGain, dividendsGross, dividendsNet, expectedAnnualIncomeGross]
+      required: [currency, costBasis, realizedGain, dividendsGross, dividendsNet, expectedAnnualIncomeGross, marketValue, unrealizedGain, pricedCoverage]
       properties:
         currency: { $ref: '#/components/schemas/Currency' }
         costBasis: { $ref: '#/components/schemas/Decimal' }
@@ -1121,12 +1231,16 @@ components:
         dividendsGross: { $ref: '#/components/schemas/Decimal' }
         dividendsNet: { $ref: '#/components/schemas/Decimal' }
         expectedAnnualIncomeGross: { $ref: '#/components/schemas/Decimal', description: Suma de las filas con dato (las null no suman) }
+        marketValue: { $ref: '#/components/schemas/Decimal', description: (v0.4) Suma de filas con precio }
+        unrealizedGain: { $ref: '#/components/schemas/Decimal' }
+        pricedCoverage: { $ref: '#/components/schemas/Decimal', description: Fracción del costo vigente con precio disponible (1 = todas) }
     ReportingAmounts:
       type: object
       description: |
         Montos de una posición (o suma) en moneda de reporte. Si la moneda del instrumento = moneda de reporte, fxEffect = 0.
         Invariante: costBasisAtCurrentRate − costBasis = fxEffect.
-      required: [currency, costBasis, costBasisAtCurrentRate, fxEffect, realizedGain, dividendsNet, expectedAnnualIncomeGross]
+        (v0.4) Con precio: marketValue − costBasis = unrealizedGain = priceEffect + fxEffect.
+      required: [currency, costBasis, costBasisAtCurrentRate, fxEffect, realizedGain, dividendsNet, expectedAnnualIncomeGross, marketValue, priceEffect, unrealizedGain]
       properties:
         currency: { $ref: '#/components/schemas/Currency' }
         costBasis: { $ref: '#/components/schemas/Decimal', description: Costo vigente a tipos de cambio históricos (de cada compra, descargado a costo promedio en moneda de reporte en las ventas) }
@@ -1135,6 +1249,32 @@ components:
         realizedGain: { $ref: '#/components/schemas/Decimal', description: Ventas a TC de la venta − costo descargado a TC histórico (incluye efecto cambiario realizado) }
         dividendsNet: { $ref: '#/components/schemas/Decimal', description: Dividendos PAID netos, cada uno a TC de su fecha de pago }
         expectedAnnualIncomeGross: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: A TC actual }
+        marketValue: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: (v0.4) Valor de mercado (moneda original) × TC actual }
+        priceEffect: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: (marketValue − costBasis en moneda original) × TC actual }
+        unrealizedGain: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: marketValue − costBasis (reporte) = priceEffect + fxEffect }
+
+    # ── Mercado (v0.4) ──
+    Quote:
+      type: object
+      required: [price, currency, asOf, source, previousClose]
+      properties:
+        price: { $ref: '#/components/schemas/Decimal' }
+        currency: { $ref: '#/components/schemas/Currency' }
+        asOf: { type: string, format: date-time, description: Momento de la cotización según la fuente }
+        source: { type: string, enum: [PROVIDER, MANUAL] }
+        previousClose: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+    PortfolioHistoryPoint:
+      type: object
+      required: [date, marketValue, costBasis, cash, contributedCapital, dividendsNetCumulative, realizedGainCumulative, unpricedAtCost]
+      properties:
+        date: { $ref: '#/components/schemas/Date' }
+        marketValue: { $ref: '#/components/schemas/Decimal', description: Posiciones a precio y TC del día }
+        costBasis: { $ref: '#/components/schemas/Decimal', description: Costo vigente a TC históricos }
+        cash: { $ref: '#/components/schemas/Decimal', description: Caja a TC del día }
+        contributedCapital: { $ref: '#/components/schemas/Decimal', description: Acumulado a la fecha }
+        dividendsNetCumulative: { $ref: '#/components/schemas/Decimal', description: Dividendos PAID netos acumulados (a TC de cada pago) }
+        realizedGainCumulative: { $ref: '#/components/schemas/Decimal' }
+        unpricedAtCost: { $ref: '#/components/schemas/Decimal', description: Parte de marketValue valorizada al costo por falta de precio (0 si todo tiene precio) }
 
     # ── Moneda de reporte y tipos de cambio (v0.3) ──
     FxCurrency:
@@ -1163,7 +1303,7 @@ components:
         reportingCurrency: { $ref: '#/components/schemas/Currency', description: Default USD }
     PortfolioSummary:
       type: object
-      required: [reportingCurrency, asOf, fxAsOf, contributedCapital, costBasis, costBasisAtCurrentRate, cash, fxEffect, realizedGain, dividends, exposure]
+      required: [reportingCurrency, asOf, fxAsOf, contributedCapital, costBasis, costBasisAtCurrentRate, cash, fxEffect, realizedGain, dividends, exposure, marketValue, netWorth, priceEffect, unrealizedGain, totalGain, pricedCoverage, pricesAsOf]
       properties:
         reportingCurrency: { $ref: '#/components/schemas/Currency' }
         asOf: { $ref: '#/components/schemas/Date' }
@@ -1180,6 +1320,13 @@ components:
             cash: { $ref: '#/components/schemas/Decimal', description: Saldo a TC actual − Σ movimientos a TC de su fecha (caja en moneda distinta a la de reporte) }
             total: { $ref: '#/components/schemas/Decimal' }
         realizedGain: { $ref: '#/components/schemas/Decimal' }
+        marketValue: { $ref: '#/components/schemas/Decimal', description: (v0.4) Posiciones con precio, a TC actual }
+        netWorth: { $ref: '#/components/schemas/Decimal', description: marketValue + cash }
+        priceEffect: { $ref: '#/components/schemas/Decimal' }
+        unrealizedGain: { $ref: '#/components/schemas/Decimal', description: priceEffect + fxEffect.positions (sólo posiciones con precio) }
+        totalGain: { $ref: '#/components/schemas/Decimal', description: netWorth − contributedCapital (ganancia total del patrimonio, incluye dividendos y efecto cambiario) }
+        pricedCoverage: { $ref: '#/components/schemas/Decimal', description: Fracción del costo vigente con precio }
+        pricesAsOf: { type: [string, 'null'], format: date-time, description: Cotización más antigua usada (para mostrar "precios al …") }
         dividends:
           type: object
           required: [netYearToDate, netLast12Months, netTotal, expectedAnnualGross]
@@ -1188,6 +1335,7 @@ components:
             netLast12Months: { $ref: '#/components/schemas/Decimal' }
             netTotal: { $ref: '#/components/schemas/Decimal' }
             expectedAnnualGross: { $ref: '#/components/schemas/Decimal', description: Σ quantity × annualDividendPerShare a TC actual }
+            currentYield: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: (v0.4) expectedAnnualGross / marketValue, fracción }
         exposure:
           type: array
           description: Distribución por moneda de (costo vigente a TC actual + caja); suma 1

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDate, formatMoney, formatRate, formatUnitPrice, formatPercent, formatQuantity, fractionToPercent, percentToFraction } from './format.ts';
+import { formatDate, formatDateTime, formatMoney, formatRate, formatSignedPercent, formatUnitPrice, isOne, formatPercent, formatQuantity, fractionToPercent, percentToFraction } from './format.ts';
 
 // Intl en es-CL usa espacios duros en algunos formatos; normalizamos para comparar.
 const n = (s: string) => s.replace(/ | /g, ' ');
@@ -55,9 +55,45 @@ describe('formatPercent', () => {
   });
 });
 
+describe('formatSignedPercent', () => {
+  it('muestra el signo salvo en cero', () => {
+    expect(n(formatSignedPercent('0.004089'))).toBe('+0,41%');
+    expect(n(formatSignedPercent('-0.00438'))).toBe('-0,44%');
+    expect(n(formatSignedPercent('0'))).toBe('0%');
+  });
+});
+
 describe('formatDate', () => {
   it('muestra fechas de negocio como DD-MM-AAAA sin pasar por zonas horarias', () => {
     expect(formatDate('2026-01-05')).toBe('05-01-2026');
+  });
+});
+
+describe('formatDateTime', () => {
+  it('muestra un timestamp ISO como DD-MM-AAAA HH:mm en la hora local', () => {
+    const iso = '2026-10-03T15:20:00Z';
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    expect(formatDateTime(iso)).toBe(`${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`);
+  });
+});
+
+describe('formatDateTime con cierres diarios', () => {
+  it('un timestamp a medianoche UTC exacta es un cierre diario: se muestra sólo la fecha, sin correrla por zona horaria', () => {
+    expect(formatDateTime('2026-10-02T00:00:00.000Z')).toBe('02-10-2026');
+    expect(formatDateTime('2026-10-02T00:00:00Z')).toBe('02-10-2026');
+  });
+});
+
+describe('isOne', () => {
+  it.each([
+    ['1', true],
+    ['1.0000', true],
+    ['0.9132', false],
+    ['0', false],
+    ['10', false],
+  ])('%s → %s', (value, expected) => {
+    expect(isOne(value)).toBe(expected);
   });
 });
 
