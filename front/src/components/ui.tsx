@@ -60,7 +60,8 @@ export function isZero(decimal: string): boolean {
   return /^-?0*(\.0*)?$/.test(decimal);
 }
 
-/** Monto formateado; en rojo si es negativo (se mira el signo del string, sin convertir). */
-export function Signed({ amount, currency }: { amount: string; currency: Currency }) {
-  return <span className={amount.startsWith('-') && !isZero(amount) ? 'negative' : undefined}>{formatMoney(amount, currency)}</span>;
+/** Monto formateado; rojo si es negativo y verde si es positivo (se mira el signo del string, sin convertir). */
+export function Signed({ amount, currency, colorPositive = false }: { amount: string; currency: Currency; colorPositive?: boolean }) {
+  const tone = isZero(amount) ? undefined : amount.startsWith('-') ? 'negative' : colorPositive ? 'positive' : undefined;
+  return <span className={tone}>{formatMoney(amount, currency)}</span>;
 }

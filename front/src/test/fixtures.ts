@@ -1,4 +1,4 @@
-import type { Account, CashMovement, Dividend, DividendSummary, Instrument, Market, Position, Trade } from '../api/client.ts';
+import type { Account, CashMovement, Dividend, DividendSummary, FxRate, Instrument, Market, PortfolioSummary, Position, PositionList, Trade } from '../api/client.ts';
 
 export const ITAU = 'a0000000-0000-4000-8000-000000000001';
 export const IB = 'a0000000-0000-4000-8000-000000000002';
@@ -33,14 +33,30 @@ const position = (over: Partial<Position>): Position => ({
   accountId: null, instrumentId: PEHUENCHE, symbol: 'PEHUENCHE', name: 'Pehuenche', marketCode: 'XSGO', type: 'STOCK', sector: 'Energy',
   currency: 'CLP', quantity: '115', averageCost: '2607.8', costBasis: '299897', realizedGain: '0', dividendsGross: '93178',
   dividendsNet: '93178', annualDividendPerShare: '266', expectedAnnualIncomeGross: '30590', yieldOnCost: '0.102', firstTradeDate: '2025-07-31',
-  paymentMonths: [5, 12], ...over,
+  paymentMonths: [5, 12],
+  reporting: { currency: 'USD', costBasis: '318.1234', costBasisAtCurrentRate: '305.5', fxEffect: '-12.6234', realizedGain: '0', dividendsNet: '98.7', expectedAnnualIncomeGross: '32.43' },
+  ...over,
 });
+const usdReporting = (costBasis: string, dividendsNet: string, expected: string | null) =>
+  ({ currency: 'USD' as const, costBasis, costBasisAtCurrentRate: costBasis, fxEffect: '0', realizedGain: '0', dividendsNet, expectedAnnualIncomeGross: expected });
 
 export const positionsByInstrument: Position[] = [
   position({}),
-  position({ instrumentId: KO, symbol: 'KO', name: 'Coca-Cola', marketCode: 'US', currency: 'USD', sector: 'Consumer', quantity: '10.5', averageCost: '60.1234', costBasis: '631.2957', dividendsGross: '20.4', dividendsNet: '17.34', annualDividendPerShare: '2.04', expectedAnnualIncomeGross: '21.42', yieldOnCost: '0.0339', paymentMonths: [4, 7, 10, 12] }),
-  position({ instrumentId: BITO, symbol: 'BITO', name: 'BITO', marketCode: 'US', type: 'ETF', currency: 'USD', sector: null, quantity: '3', averageCost: '20', costBasis: '60', dividendsGross: '0', dividendsNet: '0', annualDividendPerShare: null, expectedAnnualIncomeGross: null, yieldOnCost: null, paymentMonths: [] }),
+  position({ instrumentId: KO, symbol: 'KO', name: 'Coca-Cola', marketCode: 'US', currency: 'USD', sector: 'Consumer', quantity: '10.5', averageCost: '60.1234', costBasis: '631.2957', dividendsGross: '20.4', dividendsNet: '17.34', annualDividendPerShare: '2.04', expectedAnnualIncomeGross: '21.42', yieldOnCost: '0.0339', paymentMonths: [4, 7, 10, 12], reporting: usdReporting('631.2957', '17.34', '21.42') }),
+  position({ instrumentId: BITO, symbol: 'BITO', name: 'BITO', marketCode: 'US', type: 'ETF', currency: 'USD', sector: null, quantity: '3', averageCost: '20', costBasis: '60', dividendsGross: '0', dividendsNet: '0', annualDividendPerShare: null, expectedAnnualIncomeGross: null, yieldOnCost: null, paymentMonths: [], reporting: usdReporting('60', '0', null) }),
 ];
+
+/** Respuesta de GET /positions (groupBy=instrument, reporte USD). */
+export const positionList = (items: Position[] = positionsByInstrument): PositionList => ({
+  reportingCurrency: 'USD',
+  fxAsOf: '2026-10-02',
+  items,
+  totalsByCurrency: [
+    { currency: 'CLP', costBasis: '299897', realizedGain: '193810.64', dividendsGross: '93178', dividendsNet: '93178', expectedAnnualIncomeGross: '30590' },
+    { currency: 'USD', costBasis: '691.2957', realizedGain: '-1.33', dividendsGross: '20.4', dividendsNet: '17.34', expectedAnnualIncomeGross: '21.42' },
+  ],
+  total: { currency: 'USD', costBasis: '1009.4191', costBasisAtCurrentRate: '996.7957', fxEffect: '-12.6234', realizedGain: '202.15', dividendsNet: '116.04', expectedAnnualIncomeGross: '53.85' },
+});
 
 export const positionsByAccount: Position[] = [
   { ...positionsByInstrument[0]!, accountId: ITAU },
@@ -58,6 +74,7 @@ const months = (values: Record<number, string>) => Array.from({ length: 12 }, (_
 
 export const summary2026: DividendSummary = {
   year: 2026,
+  reporting: { currency: 'USD', monthlyGross: months({ 3: '5.1', 4: '98.71', 6: '5.1' }), monthlyNet: months({ 3: '4.34', 4: '98.71', 6: '4.34' }), totalGross: '108.91', totalNet: '107.39' },
   groups: [
     {
       currency: 'CLP',
@@ -84,3 +101,28 @@ export const movement = (over: Partial<CashMovement> = {}): CashMovement => ({
 });
 
 export const page = <T,>(items: T[], total = items.length) => ({ items, total });
+
+export const portfolioSummary = (over: Partial<PortfolioSummary> = {}): PortfolioSummary => ({
+  reportingCurrency: 'USD',
+  asOf: '2026-10-03',
+  fxAsOf: '2026-10-02',
+  contributedCapital: '61234.5678',
+  costBasis: '62000.12',
+  costBasisAtCurrentRate: '60500.5',
+  cash: '3434.1',
+  fxEffect: { positions: '-1499.62', cash: '25.3', total: '-1474.32' },
+  realizedGain: '204.1',
+  dividends: { netYearToDate: '2100.55', netLast12Months: '2600', netTotal: '4300.2', expectedAnnualGross: '3100.4' },
+  exposure: [
+    { currency: 'CLP', amount: '27500.3', weight: '0.4302' },
+    { currency: 'USD', amount: '36434.3', weight: '0.5698' },
+  ],
+  ...over,
+});
+
+export const latestFx: FxRate[] = [
+  { base: 'USD', quote: 'CLP', date: '2026-10-02', rate: '943.52', source: 'mindicador:dolar' },
+  { base: 'EUR', quote: 'CLP', date: '2026-10-02', rate: '1021.7', source: 'mindicador:euro' },
+  { base: 'EUR', quote: 'USD', date: '2026-10-02', rate: '1.0828814', source: 'derived:CLP' },
+  { base: 'CLF', quote: 'CLP', date: '2026-10-03', rate: '39485.65', source: 'mindicador:uf' },
+];

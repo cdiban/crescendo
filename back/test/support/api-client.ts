@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import type { Container } from '../../src/composition.ts';
 import { createApp } from '../../src/interfaces/http/app.ts';
+import { Decimal } from '../../src/domain/decimal.ts';
 import { json, startServer, type TestServer } from './http.ts';
 import { resetDatabase, startTestContainer, testConfig } from './test-database.ts';
 
@@ -66,6 +67,11 @@ export async function expectStatus(res: Response, status: number): Promise<any> 
   const text = await res.text();
   assert.equal(res.status, status, `esperaba ${status}, llegó ${res.status}: ${text}`);
   return text ? JSON.parse(text) : undefined;
+}
+
+/** TC USD/CLP constante desde 2020 (para tests cuyo foco no es la conversión). */
+export async function seedFlatUsd(harness: ApiHarness, rate = '900'): Promise<void> {
+  await harness.container.uow.transaction((r) => r.fxRates.upsert([{ currency: 'USD', date: '2020-01-01', rate: Decimal.parse(rate), source: 'test' }]));
 }
 
 export { json };

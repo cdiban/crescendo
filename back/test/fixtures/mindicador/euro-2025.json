@@ -1,0 +1,21 @@
+{
+ "version": "1.7.0",
+ "autor": "mindicador.cl",
+ "codigo": "euro",
+ "nombre": "Euro",
+ "unidad_medida": "Pesos",
+ "serie": [
+  {
+   "fecha": "2025-12-30T03:00:00.000Z",
+   "valor": 1070.72
+  },
+  {
+   "fecha": "2025-07-01T04:00:00.000Z",
+   "valor": 1099.05
+  },
+  {
+   "fecha": "2025-01-02T03:00:00.000Z",
+   "valor": 1035.28
+  }
+ ]
+}

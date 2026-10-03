@@ -36,6 +36,7 @@ describe('Login', () => {
       email: Email.create('ana@example.com'),
       passwordHash: await hasher.hash('correcta-y-larga'),
       createdAt: NOW,
+      reportingCurrency: 'USD',
     });
   });
 

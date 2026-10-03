@@ -13,6 +13,7 @@ export type ProblemCode =
   | 'AUTOMATIC_MOVEMENT'
   | 'NO_POSITION_FOR_DIVIDEND'
   | 'INVALID_STATE'
+  | 'FX_RATE_UNAVAILABLE'
   | 'INTERNAL_ERROR';
 
 export type FieldError = { field: string; message: string };

@@ -137,9 +137,35 @@ h3 {
 
 .user {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 12px;
   font-size: 0.9rem;
+  min-width: 0;
+}
+
+.user .email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.currency-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+td.date {
+  white-space: nowrap;
+}
+
+.currency-select select {
+  padding: 4px 8px;
+  font-weight: 600;
 }
 
 .content {
@@ -351,6 +377,11 @@ td {
   padding: 6px 8px;
 }
 
+.compact thead th {
+  white-space: normal;
+  vertical-align: bottom;
+}
+
 thead th {
   font-size: 0.8rem;
   text-transform: uppercase;
@@ -450,6 +481,109 @@ tr.needs-review {
   width: auto;
 }
 
+/* ── Resumen ── */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 16px;
+}
+
+.stat-card {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 700px) {
+  .stat-card.wide {
+    grid-column: span 2;
+  }
+}
+
+.stat-card h2 {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.stat {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.small {
+  font-size: 0.82rem;
+}
+
+.hint {
+  margin: auto 0 0;
+  padding-top: 8px;
+}
+
+.pairs {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+}
+
+.pairs dt {
+  color: var(--muted);
+}
+
+.pairs dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.exposure {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.exposure li {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 4px 12px;
+  align-items: baseline;
+}
+
+.bar {
+  grid-column: 1 / -1;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--row-alt);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  width: calc(var(--w) * 100%);
+  background: var(--accent);
+}
+
+th.reporting,
+td.reporting {
+  border-left: 1px dashed var(--border);
+}
+
+.pairs.totals {
+  max-width: 460px;
+}
+
+.positive {
+  color: var(--success);
+}
+
 /* ── Mensajes ── */
 .muted {
   color: var(--muted);
@@ -520,7 +654,10 @@ tr.needs-review {
 
   .user {
     width: 100%;
-    justify-content: space-between;
+  }
+
+  .user .email {
+    flex: 1 1 0;
   }
 
   .filters .field {

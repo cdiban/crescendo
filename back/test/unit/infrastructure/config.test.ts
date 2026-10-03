@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadConfig } from '../../../src/infrastructure/config.ts';
+import { loadConfig, loadWorkerConfig } from '../../../src/infrastructure/config.ts';
 
 const base = { DATABASE_URL: 'postgres://u:p@db:5432/crescendo', APP_ORIGIN: 'http://localhost:8080' };
 
@@ -36,6 +36,29 @@ describe('loadConfig', () => {
   ] as const) {
     test(`falla si ${name}`, () => {
       assert.throws(() => loadConfig(env));
+    });
+  }
+});
+
+describe('loadWorkerConfig', () => {
+  test('defaults: backfill desde 2024-01-01 y refresco cada 360 minutos', () => {
+    assert.deepEqual(loadWorkerConfig({ DATABASE_URL: base.DATABASE_URL }), {
+      databaseUrl: base.DATABASE_URL,
+      sessionTtlHours: 168,
+      fxBackfillFrom: '2024-01-01',
+      fxSyncIntervalMinutes: 360,
+    });
+  });
+
+  test('lee valores explícitos y no exige APP_ORIGIN', () => {
+    const c = loadWorkerConfig({ DATABASE_URL: base.DATABASE_URL, FX_BACKFILL_FROM: '2023-06-01', FX_SYNC_INTERVAL_MINUTES: '60' });
+    assert.equal(c.fxBackfillFrom, '2023-06-01');
+    assert.equal(c.fxSyncIntervalMinutes, 60);
+  });
+
+  for (const env of [{ FX_BACKFILL_FROM: '2023-13-01' }, { FX_SYNC_INTERVAL_MINUTES: '0' }, { FX_SYNC_INTERVAL_MINUTES: 'x' }]) {
+    test(`falla con ${JSON.stringify(env)}`, () => {
+      assert.throws(() => loadWorkerConfig({ DATABASE_URL: base.DATABASE_URL, ...env }));
     });
   }
 });

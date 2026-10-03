@@ -3,6 +3,8 @@ import type { CashMovement, CashMovementType, NewCashMovement } from '../../doma
 import type { Currency } from '../../domain/currency.ts';
 import type { Decimal } from '../../domain/decimal.ts';
 import type { Dividend, DividendStatus, NewDividend } from '../../domain/dividend.ts';
+import type { FxQuote } from '../../domain/fx.ts';
+import type { FetchedFxQuote } from './fx-rate-provider.ts';
 import type { Instrument, NewInstrument } from '../../domain/instrument.ts';
 import type { Market } from '../../domain/market.ts';
 import type { NewTrade, Trade } from '../../domain/trade.ts';
@@ -95,8 +97,19 @@ export interface CashMovementRepository {
   add(movement: NewCashMovement): Promise<CashMovement>;
   update(movement: CashMovement): Promise<void>;
   delete(userId: string, id: string): Promise<void>;
+  /** Movimientos del usuario con fecha ≤ `to` (todos si se omite), más antiguos primero. */
+  listByUser(userId: string, filter?: { to?: string | undefined }): Promise<CashMovement[]>;
   /** Saldo = suma de movimientos, por cuenta y moneda. */
   balances(userId: string, accountId?: string): Promise<CashBalance[]>;
+}
+
+export interface FxRateRepository {
+  /** Inserta o actualiza por (moneda, fecha). Devuelve cuántas filas cambiaron (0 si ya estaba todo igual). */
+  upsert(quotes: readonly FetchedFxQuote[]): Promise<number>;
+  /** Todos los datos con fecha ≤ `date` (todas las monedas). */
+  listUpTo(date: string): Promise<FetchedFxQuote[]>;
+  /** Última fecha cargada de `currency` dentro del año, o null. */
+  lastDateInYear(currency: FxQuote['currency'], year: number): Promise<string | null>;
 }
 
 export type Repositories = {
@@ -107,4 +120,5 @@ export type Repositories = {
   trades: TradeRepository;
   dividends: DividendRepository;
   cashMovements: CashMovementRepository;
+  fxRates: FxRateRepository;
 };

@@ -44,6 +44,12 @@ export function formatUnitPrice(price: string, currency: Currency): string {
   return format.format(asNumeric(price));
 }
 
+const rateFormat = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 4 });
+/** Tipo de cambio ("943.52" → "943,52"). */
+export function formatRate(rate: string): string {
+  return rateFormat.format(asNumeric(rate));
+}
+
 const percentFormat = new Intl.NumberFormat('es-CL', { style: 'percent', maximumFractionDigits: 2 });
 /** Fracción ("0.15") como porcentaje ("15%"). */
 export function formatPercent(fraction: string): string {

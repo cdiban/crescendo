@@ -2,10 +2,12 @@ import { DataSource } from 'typeorm';
 import type { PostgresDriver } from 'typeorm/driver/postgres/PostgresDriver.js';
 import { InitialSchema1759500000000 } from './migrations/1759500000000-initial-schema.ts';
 import { PortfolioCore1759600000000 } from './migrations/1759600000000-portfolio-core.ts';
+import { MultiCurrency1759700000000 } from './migrations/1759700000000-multi-currency.ts';
 import {
   AccountSchema,
   CashMovementSchema,
   DividendSchema,
+  FxRateSchema,
   InstrumentSchema,
   MarketSchema,
   SessionSchema,
@@ -19,9 +21,9 @@ export function createDataSource(databaseUrl: string): DataSource {
   const dataSource = new DataSource({
     type: 'postgres',
     url: databaseUrl,
-    entities: [UserSchema, SessionSchema, MarketSchema, InstrumentSchema, AccountSchema, TradeSchema, DividendSchema, CashMovementSchema],
+    entities: [UserSchema, SessionSchema, MarketSchema, InstrumentSchema, AccountSchema, TradeSchema, DividendSchema, CashMovementSchema, FxRateSchema],
     // Lista explícita (sin globs): el orden y el contenido de las migraciones es revisable.
-    migrations: [InitialSchema1759500000000, PortfolioCore1759600000000],
+    migrations: [InitialSchema1759500000000, PortfolioCore1759600000000, MultiCurrency1759700000000],
     migrationsTransactionMode: 'each',
     synchronize: false,
     // Sin 'error'/'query': los errores no mapeados los registra el router, y así no

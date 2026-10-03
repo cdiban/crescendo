@@ -1,0 +1,25 @@
+{
+ "version": "1.7.0",
+ "autor": "mindicador.cl",
+ "codigo": "uf",
+ "nombre": "Unidad de fomento (UF)",
+ "unidad_medida": "Pesos",
+ "serie": [
+  {
+   "fecha": "2026-10-09T03:00:00.000Z",
+   "valor": 41130.94
+  },
+  {
+   "fecha": "2026-10-04T03:00:00.000Z",
+   "valor": 41089.96
+  },
+  {
+   "fecha": "2026-10-03T03:00:00.000Z",
+   "valor": 41081.76
+  },
+  {
+   "fecha": "2026-06-15T04:00:00.000Z",
+   "valor": 40779.55
+  }
+ ]
+}

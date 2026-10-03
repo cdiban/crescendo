@@ -43,6 +43,13 @@ export type CashMovementType = Schemas['CashMovementType'];
 export type CashTransfer = Schemas['CashTransfer'];
 export type CashTransferInput = Schemas['CashTransferInput'];
 export type Position = Schemas['Position'];
+export type PositionList = Json<'listPositions', 200>;
+export type ReportingAmounts = Schemas['ReportingAmounts'];
+export type PortfolioSummary = Schemas['PortfolioSummary'];
+export type FxRate = Schemas['FxRate'];
+export type Preferences = Schemas['Preferences'];
+export type PreferencesUpdate = Body<'updatePreferences'>;
+export type PortfolioSummaryQuery = Query<'getPortfolioSummary'>;
 export type TradeQuery = Query<'listTrades'>;
 export type DividendQuery = Query<'listDividends'>;
 export type DividendSummaryQuery = Query<'getDividendSummary'>;
@@ -178,8 +185,14 @@ export function createApi(options: ApiOptions = {}) {
     },
 
     // ── Portafolio ──
-    listPositions: async (query: PositionQuery = {}) =>
-      (await request('GET', '/positions', undefined, query)) as Json<'listPositions', 200>,
+    listPositions: async (query: PositionQuery = {}) => (await request('GET', '/positions', undefined, query)) as PositionList,
+    getPortfolioSummary: async (query: PortfolioSummaryQuery = {}) =>
+      (await request('GET', '/portfolio/summary', undefined, query)) as PortfolioSummary,
+
+    // ── Tipos de cambio y preferencias ──
+    getLatestFxRates: async () => (await request('GET', '/fx-rates/latest')) as Json<'getLatestFxRates', 200>,
+    getPreferences: async () => (await request('GET', '/me/preferences')) as Preferences,
+    updatePreferences: async (body: PreferencesUpdate) => (await request('PATCH', '/me/preferences', body)) as Preferences,
   };
 }
 

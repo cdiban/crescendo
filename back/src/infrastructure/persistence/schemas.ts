@@ -8,6 +8,7 @@ export type UserRecord = {
   email: string;
   passwordHash: string;
   createdAt: Date;
+  reportingCurrency: string;
 };
 
 export type SessionRecord = {
@@ -25,6 +26,7 @@ export const UserSchema = new EntitySchema<UserRecord>({
     email: { type: 'text', unique: true },
     passwordHash: { type: 'text', name: 'password_hash' },
     createdAt: { type: 'timestamptz', name: 'created_at' },
+    reportingCurrency: { type: 'char', length: 3, name: 'reporting_currency' },
   },
 });
 
@@ -231,5 +233,19 @@ export const CashMovementSchema = new EntitySchema<CashMovementRecord>({
     dividendId: { type: 'uuid', nullable: true, name: 'dividend_id' },
     transferId: { type: 'uuid', nullable: true, name: 'transfer_id' },
     createdAt: { type: 'timestamptz', name: 'created_at', createDate: true },
+  },
+});
+
+export type FxRateRecord = { currency: string; date: string; rate: string; source: string; fetchedAt?: Date };
+
+export const FxRateSchema = new EntitySchema<FxRateRecord>({
+  name: 'FxRate',
+  tableName: 'fx_rates',
+  columns: {
+    currency: { type: 'char', length: 3, primary: true },
+    date: { type: 'date', primary: true },
+    rate: { type: 'numeric', precision: 20, scale: 10 },
+    source: { type: 'text' },
+    fetchedAt: { type: 'timestamptz', name: 'fetched_at', createDate: true },
   },
 });

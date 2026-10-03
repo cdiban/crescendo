@@ -133,3 +133,30 @@ describe('cliente API — endpoints de Fase 1', () => {
     expect(fetchMock.mock.calls[0]![0]).toBe('/api/v1/dividends/summary?year=2026&status=PAID');
   });
 });
+
+describe('cliente API — Fase 2', () => {
+  it('lee y actualiza preferencias con PATCH', async () => {
+    const fetchMock = mockFetch([
+      { method: 'GET', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD' } },
+      { method: 'PATCH', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'CLP' } },
+    ]);
+    const api = createApi();
+
+    await expect(api.getPreferences()).resolves.toEqual({ reportingCurrency: 'USD' });
+    await expect(api.updatePreferences({ reportingCurrency: 'CLP' })).resolves.toEqual({ reportingCurrency: 'CLP' });
+    expect(fetchMock.mock.calls[1]![1]?.body).toBe('{"reportingCurrency":"CLP"}');
+  });
+
+  it('pide el resumen de cartera y los tipos de cambio vigentes', async () => {
+    const fetchMock = mockFetch([
+      { method: 'GET', path: '/api/v1/portfolio/summary', status: 200, body: {} },
+      { method: 'GET', path: '/api/v1/fx-rates/latest', status: 200, body: { items: [] } },
+    ]);
+    const api = createApi();
+
+    await api.getPortfolioSummary({ reportingCurrency: 'CLP' });
+    await api.getLatestFxRates();
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/v1/portfolio/summary?reportingCurrency=CLP', '/api/v1/fx-rates/latest']);
+  });
+});

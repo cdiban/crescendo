@@ -30,13 +30,13 @@ describe('DividendsScreen', () => {
 
   it('carga el año actual: lista, resumen y datos del formulario', async () => {
     const fetchMock = mockFetch(baseRoutes());
-    render(<DividendsScreen api={createApi()} />);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
 
     await within(await screen.findByRole('region', { name: 'Dividendos registrados' })).findByText('15-12-2026');
     expect(calls(fetchMock)).toEqual(
       expect.arrayContaining([
         'GET /api/v1/dividends?from=2026-01-01&to=2026-12-31&limit=100&offset=0',
-        'GET /api/v1/dividends/summary?year=2026',
+        'GET /api/v1/dividends/summary?year=2026&reportingCurrency=USD',
         'GET /api/v1/positions?groupBy=account',
         'GET /api/v1/instruments?limit=500',
       ]),
@@ -49,7 +49,7 @@ describe('DividendsScreen', () => {
 
   it('el resumen mensual muestra una tabla por moneda con meses y totales (neto por defecto, bruto a elección)', async () => {
     mockFetch(baseRoutes());
-    render(<DividendsScreen api={createApi()} />);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
 
     const usd = await within(await screen.findByRole('region', { name: 'Resumen mensual USD' })).findByRole('table');
     const koRow = within(usd).getByRole('row', { name: /KO/ });
@@ -60,9 +60,32 @@ describe('DividendsScreen', () => {
     expect(nbsp(within(screen.getByRole('region', { name: 'Resumen mensual USD' })).getByRole('row', { name: /^Total/ }).textContent)).toMatch(/US\$10,20$/);
   });
 
+  it('agrega la tabla "Total en USD" con el bloque reporting (neto o bruto según la vista)', async () => {
+    mockFetch(baseRoutes());
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
+
+    const region = await screen.findByRole('region', { name: 'Resumen mensual en USD' });
+    const row = within(region).getByRole('row', { name: /Total en USD/ });
+    expect(nbsp(row.textContent)).toBe('Total en USD———US$4,34US$98,71—US$4,34—————US$107,39');
+
+    fireEvent.click(screen.getByLabelText('Bruto'));
+    expect(nbsp(within(screen.getByRole('region', { name: 'Resumen mensual en USD' })).getByRole('row', { name: /Total en USD/ }).textContent)).toMatch(/US\$108,91$/);
+  });
+
+  it('cambiar la moneda de reporte vuelve a pedir el resumen', async () => {
+    const fetchMock = mockFetch(baseRoutes());
+    const api = createApi();
+    const { rerender } = render(<DividendsScreen api={api} reportingCurrency="USD" />);
+    await screen.findByRole('region', { name: 'Resumen mensual en USD' });
+
+    rerender(<DividendsScreen api={api} reportingCurrency="CLP" />);
+
+    await vi.waitFor(() => expect(calls(fetchMock)).toContain('GET /api/v1/dividends/summary?year=2026&reportingCurrency=CLP'));
+  });
+
   it('cambiar año y estado vuelve a pedir lista y resumen con esos filtros', async () => {
     const fetchMock = mockFetch(baseRoutes());
-    render(<DividendsScreen api={createApi()} />);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     await screen.findAllByText('15-12-2026');
 
     fireEvent.change(screen.getByLabelText('Año'), { target: { value: '2025' } });
@@ -73,7 +96,7 @@ describe('DividendsScreen', () => {
       expect(calls(fetchMock)).toEqual(
         expect.arrayContaining([
           'GET /api/v1/dividends?status=PAID&from=2025-01-01&to=2025-12-31&instrumentId=' + KO + '&limit=100&offset=0',
-          'GET /api/v1/dividends/summary?year=2025&status=PAID',
+          'GET /api/v1/dividends/summary?year=2025&status=PAID&reportingCurrency=USD',
         ]),
       ),
     );
@@ -84,7 +107,7 @@ describe('DividendsScreen', () => {
       ...baseRoutes(),
       { method: 'POST', path: `/api/v1/dividends/${announced.id}/mark-paid`, status: 200, body: { ...announced, status: 'PAID' } },
     ]);
-    render(<DividendsScreen api={createApi()} />);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Marcar pagado' }));
 
     const dialog = screen.getByRole('dialog', { name: /Marcar pagado: KO/ });
@@ -105,7 +128,7 @@ describe('DividendsScreen', () => {
 
   it('"Marcar pagado" valida el neto antes de enviar', async () => {
     const fetchMock = mockFetch(baseRoutes());
-    render(<DividendsScreen api={createApi()} />);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Marcar pagado' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText(/Neto recibido/), { target: { value: 'cuatro' } });
@@ -117,7 +140,7 @@ describe('DividendsScreen', () => {
 
   it('"Marcar pagado" muestra INVALID_STATE si ya estaba pagado', async () => {
     mockFetch([...baseRoutes(), { method: 'POST', path: `/api/v1/dividends/${announced.id}/mark-paid`, ...problem(422, 'INVALID_STATE') }]);
-    render(<DividendsScreen api={createApi()} />);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Marcar pagado' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Marcar pagado' }));
 
@@ -126,7 +149,7 @@ describe('DividendsScreen', () => {
 
   it('borrar pide confirmación y refresca', async () => {
     const fetchMock = mockFetch([...baseRoutes(), { method: 'DELETE', path: `/api/v1/dividends/${paid.id}`, status: 204 }]);
-    render(<DividendsScreen api={createApi()} />);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     await screen.findAllByText('01-07-2026');
 
     fireEvent.click(within(within(list()).getAllByRole('row')[2]!).getByRole('button', { name: 'Borrar' }));
@@ -140,7 +163,7 @@ describe('DividendsScreen', () => {
 
   it('editar abre el formulario con el dividendo y guarda con PUT', async () => {
     const fetchMock = mockFetch([...baseRoutes(), { method: 'PUT', path: `/api/v1/dividends/${paid.id}`, status: 200, body: paid }]);
-    render(<DividendsScreen api={createApi()} />);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     await screen.findAllByText('01-07-2026');
 
     fireEvent.click(within(within(list()).getAllByRole('row')[2]!).getByRole('button', { name: 'Editar' }));
@@ -154,7 +177,7 @@ describe('DividendsScreen', () => {
   it('registrar un dividendo refresca lista y resumen y confirma con el neto devuelto por la API', async () => {
     const created = dividend({ id: 'd-new', status: 'PAID', netAmount: '4.34' });
     const fetchMock = mockFetch([...baseRoutes(), { method: 'POST', path: '/api/v1/dividends', status: 201, body: created }]);
-    render(<DividendsScreen api={createApi()} />);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     await screen.findAllByText('15-12-2026');
 
     fireEvent.change(screen.getByLabelText('Instrumento', { selector: 'input' }), { target: { value: 'KO' } });
@@ -168,7 +191,7 @@ describe('DividendsScreen', () => {
 
   it('muestra el error si la lista no carga', async () => {
     mockFetch([...baseRoutes().slice(0, 3), { method: 'GET', path: '/api/v1/dividends', ...problem(500, 'INTERNAL_ERROR') }, baseRoutes()[4]!]);
-    render(<DividendsScreen api={createApi()} />);
+    render(<DividendsScreen api={createApi()} reportingCurrency="USD" />);
     expect((await screen.findByRole('alert')).textContent).toMatch(/inesperado/);
   });
 });

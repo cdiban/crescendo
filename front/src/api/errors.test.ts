@@ -18,6 +18,10 @@ describe('errorMessage', () => {
     expect(errorMessage(apiError(422, code))).toMatch(pattern);
   });
 
+  it('422 FX_RATE_UNAVAILABLE explica que faltan tipos de cambio', () => {
+    expect(errorMessage(apiError(422, 'FX_RATE_UNAVAILABLE'))).toBe('Aún no hay tipos de cambio cargados para esa fecha.');
+  });
+
   it('409 CONFLICT explica el duplicado', () => {
     expect(errorMessage(apiError(409, 'CONFLICT'))).toMatch(/Ya existe/);
   });

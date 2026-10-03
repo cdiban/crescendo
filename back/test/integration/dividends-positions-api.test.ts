@@ -1,6 +1,6 @@
 import { after, before, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { expectStatus, startApi, type Api, type ApiHarness } from '../support/api-client.ts';
+import { expectStatus, seedFlatUsd, startApi, type Api, type ApiHarness } from '../support/api-client.ts';
 
 let h: ApiHarness;
 let ana: Api;
@@ -16,6 +16,7 @@ before(async () => {
 after(() => h.close());
 beforeEach(async () => {
   await h.reset();
+  await seedFlatUsd(h);
   ana = await h.as('ana@example.com');
   beto = await h.as('beto@example.com');
   itau = await expectStatus(await ana.post('/accounts', { name: 'Itaú', broker: 'Itaú', baseCurrency: 'CLP' }), 201);
@@ -303,6 +304,16 @@ describe('posiciones', () => {
         yieldOnCost: '0.019604',
         firstTradeDate: '2025-01-10',
         paymentMonths: [4, 7],
+        // Reporte en USD (preferencia por defecto) de una posición en USD: sin efecto cambiario.
+        reporting: {
+          currency: 'USD',
+          costBasis: '1196.7048',
+          costBasisAtCurrentRate: '1196.7048',
+          fxEffect: '0',
+          realizedGain: '60.1848',
+          dividendsNet: '9.35',
+          expectedAnnualIncomeGross: '23.46',
+        },
       },
     ]);
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDate, formatMoney, formatUnitPrice, formatPercent, formatQuantity, fractionToPercent, percentToFraction } from './format.ts';
+import { formatDate, formatMoney, formatRate, formatUnitPrice, formatPercent, formatQuantity, fractionToPercent, percentToFraction } from './format.ts';
 
 // Intl en es-CL usa espacios duros en algunos formatos; normalizamos para comparar.
 const n = (s: string) => s.replace(/ | /g, ' ');
@@ -30,6 +30,14 @@ describe('formatUnitPrice', () => {
     expect(n(formatUnitPrice('2600', 'CLP'))).toBe('$2.600');
     expect(n(formatUnitPrice('61.2', 'USD'))).toBe('US$61,20');
     expect(n(formatUnitPrice('60.12345', 'USD'))).toBe('US$60,1235');
+  });
+});
+
+describe('formatRate', () => {
+  it('tipos de cambio con hasta 4 decimales', () => {
+    expect(formatRate('943.52')).toBe('943,52');
+    expect(formatRate('1.0828814')).toBe('1,0829');
+    expect(formatRate('39485.65')).toBe('39.485,65');
   });
 });
 

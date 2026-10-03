@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseBundle } from '../../src/interfaces/cli/import-bundle-command.ts';
 import { ImportRefusedError } from '../../src/application/use-cases/import-bundle.ts';
 import { InsufficientPositionError } from '../../src/domain/errors.ts';
-import { expectStatus, startApi, type ApiHarness } from '../support/api-client.ts';
+import { expectStatus, seedFlatUsd, startApi, type ApiHarness } from '../support/api-client.ts';
 
 // Bundle sintético (nunca datos reales en los tests).
 function bundle() {
@@ -42,7 +42,10 @@ describe('import-bundle (Postgres real)', () => {
     h = await startApi();
   });
   after(() => h.close());
-  beforeEach(() => h.reset());
+  beforeEach(async () => {
+    await h.reset();
+    await seedFlatUsd(h);
+  });
 
   const run = (email: string, b: unknown = bundle()) => h.container.useCases.importBundle.execute(email, parseBundle(b));
 

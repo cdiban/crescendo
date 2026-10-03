@@ -25,7 +25,7 @@ describe('GetCurrentUser', () => {
     sessions = new InMemorySessionRepository();
     clock = new FixedClock(NOW);
     useCase = new GetCurrentUser({ users, sessions, tokens: new SequentialTokenGenerator(), clock });
-    user = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW });
+    user = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW, reportingCurrency: 'USD' });
     await sessions.add({
       tokenHash: 'sha:tok',
       userId: user.id,

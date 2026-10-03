@@ -7,6 +7,7 @@ const MESSAGES: Partial<Record<ProblemCode, string>> = {
   NO_POSITION_FOR_DIVIDEND: 'No había posición en esa cuenta en la fecha del dividendo. Indica la cantidad de acciones o ingresa el monto bruto.',
   INVALID_STATE: 'El registro no está en un estado que permita esta acción (por ejemplo, el dividendo ya está pagado).',
   CURRENCY_MISMATCH: 'La moneda no corresponde a la del instrumento o la cuenta.',
+  FX_RATE_UNAVAILABLE: 'Aún no hay tipos de cambio cargados para esa fecha.',
   CONFLICT: 'Ya existe un registro con esos datos (nombre o símbolo duplicado).',
   NOT_FOUND: 'El registro ya no existe. Recarga la página.',
 };

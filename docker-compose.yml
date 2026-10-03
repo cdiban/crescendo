@@ -22,6 +22,7 @@ services:
 
   api:
     build: ./back
+    image: crescendo-back
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL:?definir en .env}
@@ -30,6 +31,25 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
     depends_on:
       db:
+        condition: service_healthy
+
+  # Tareas programadas (tipos de cambio; en F3 también precios). Misma imagen que api,
+  # otro entrypoint: no corre dentro de la API, así un reinicio o escalado de api no las duplica.
+  # Es el único servicio que sale a internet (mindicador.cl); la API sólo lee la BD.
+  worker:
+    image: crescendo-back
+    command: ["node", "src/worker.ts"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?definir en .env}
+      FX_BACKFILL_FROM: ${FX_BACKFILL_FROM:-2024-01-01}
+      FX_SYNC_INTERVAL_MINUTES: ${FX_SYNC_INTERVAL_MINUTES:-360}
+    # El HEALTHCHECK de la imagen consulta el HTTP de la API; el worker no expone HTTP.
+    healthcheck:
+      disable: true
+    depends_on:
+      # La API aplica las migraciones; el worker espera a que esté sana.
+      api:
         condition: service_healthy
 
   web:

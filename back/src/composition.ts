@@ -3,6 +3,9 @@ import { Cash } from './application/use-cases/cash.ts';
 import { Catalog } from './application/use-cases/catalog.ts';
 import { CheckHealth } from './application/use-cases/check-health.ts';
 import { Dividends } from './application/use-cases/dividends.ts';
+import { FxRates } from './application/use-cases/fx-rates.ts';
+import { Preferences } from './application/use-cases/preferences.ts';
+import { SyncFx } from './application/use-cases/sync-fx.ts';
 import { ImportBundle } from './application/use-cases/import-bundle.ts';
 import { Portfolio } from './application/use-cases/portfolio.ts';
 import { Trades } from './application/use-cases/trades.ts';
@@ -12,6 +15,7 @@ import { Login } from './application/use-cases/login.ts';
 import { Logout } from './application/use-cases/logout.ts';
 import { loadConfig, type Config } from './infrastructure/config.ts';
 import { CryptoIdGenerator } from './infrastructure/crypto-id-generator.ts';
+import { MindicadorFxRateProvider } from './infrastructure/fx/mindicador-fx-rate-provider.ts';
 import { createDataSource } from './infrastructure/persistence/data-source.ts';
 import { TypeOrmUnitOfWork } from './infrastructure/persistence/typeorm-unit-of-work.ts';
 import { TypeOrmDatabaseHealth } from './infrastructure/persistence/typeorm-database-health.ts';
@@ -22,7 +26,13 @@ import { ScryptPasswordHasher } from './infrastructure/security/scrypt-password-
 import { SystemClock } from './infrastructure/system-clock.ts';
 
 /** Composition root: el único lugar que conecta casos de uso con adaptadores. */
-export function buildContainer(config: Config) {
+export type ContainerOptions = {
+  /** Destino de los logs operativos (worker, CLI); por defecto stdout. */
+  log?: (message: string) => void;
+};
+
+export function buildContainer(config: Pick<Config, 'databaseUrl' | 'sessionTtlHours'>, options: ContainerOptions = {}) {
+  const log = options.log ?? ((message: string) => console.log(message));
   const dataSource = createDataSource(config.databaseUrl);
   const users = new TypeOrmUserRepository(dataSource.manager);
   const sessions = new TypeOrmSessionRepository(dataSource.manager);
@@ -52,12 +62,26 @@ export function buildContainer(config: Config) {
       cash,
       portfolio: new Portfolio({ uow, clock }),
       importBundle: new ImportBundle({ uow, catalog, accounts, trades, dividends, cash }),
+      preferences: new Preferences({ uow }),
+      fxRates: new FxRates({ uow, clock }),
+      // La API nunca lo usa: sólo el worker y la CLI sync-fx llaman a la fuente externa.
+      syncFx: new SyncFx({ uow, provider: new MindicadorFxRateProvider(), clock, log }),
     },
     uow,
-    /** Conecta y aplica migraciones pendientes. */
-    async start(): Promise<void> {
+    /**
+     * Conecta y aplica migraciones pendientes. Con `migrate: false` (worker) no migra: espera a que
+     * la API lo haga, para que dos procesos nunca corran migraciones a la vez.
+     */
+    async start(opts: { migrate?: boolean; waitMs?: number } = {}): Promise<void> {
       await dataSource.initialize();
-      await dataSource.runMigrations();
+      if (opts.migrate ?? true) {
+        await dataSource.runMigrations();
+        return;
+      }
+      while (await dataSource.showMigrations()) {
+        log('Esperando a que la API aplique las migraciones…');
+        await new Promise((r) => setTimeout(r, opts.waitMs ?? 5000));
+      }
     },
     async stop(): Promise<void> {
       if (dataSource.isInitialized) await dataSource.destroy();

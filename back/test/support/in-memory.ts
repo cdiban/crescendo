@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Currency } from '../../src/domain/currency.ts';
 import type { Email } from '../../src/domain/email.ts';
 import type { Session } from '../../src/domain/session.ts';
 import type { NewUser, User } from '../../src/domain/user.ts';
@@ -7,6 +8,10 @@ import type { PasswordHasher } from '../../src/application/ports/password-hasher
 import type { SessionRepository } from '../../src/application/ports/session-repository.ts';
 import type { TokenGenerator } from '../../src/application/ports/token-generator.ts';
 import type { UserRepository } from '../../src/application/ports/user-repository.ts';
+import type { FxQuote } from '../../src/domain/fx.ts';
+import type { FetchedFxQuote } from '../../src/application/ports/fx-rate-provider.ts';
+import type { FxRateRepository, Repositories } from '../../src/application/ports/repositories.ts';
+import type { UnitOfWork } from '../../src/application/ports/unit-of-work.ts';
 
 export class InMemoryUserRepository implements UserRepository {
   readonly users = new Map<string, User>();
@@ -23,6 +28,11 @@ export class InMemoryUserRepository implements UserRepository {
     const user: User = { id: randomUUID(), ...newUser };
     this.users.set(user.id, user);
     return user;
+  }
+
+  async updateReportingCurrency(id: string, currency: Currency): Promise<void> {
+    const user = this.users.get(id);
+    if (user) this.users.set(id, { ...user, reportingCurrency: currency });
   }
 }
 
@@ -83,4 +93,35 @@ export class FixedClock implements Clock {
   today(): string {
     return this.current.toISOString().slice(0, 10);
   }
+}
+
+export class InMemoryFxRateRepository implements FxRateRepository {
+  readonly rows = new Map<string, FetchedFxQuote>();
+
+  async upsert(quotes: readonly FetchedFxQuote[]): Promise<number> {
+    let changed = 0;
+    for (const q of quotes) {
+      const key = `${q.currency}|${q.date}`;
+      const current = this.rows.get(key);
+      if (current && current.rate.eq(q.rate) && current.source === q.source) continue;
+      this.rows.set(key, q);
+      changed += 1;
+    }
+    return changed;
+  }
+
+  async listUpTo(date: string): Promise<FetchedFxQuote[]> {
+    return [...this.rows.values()].filter((q) => q.date <= date).sort((a, b) => (a.date < b.date ? -1 : 1));
+  }
+
+  async lastDateInYear(currency: FxQuote['currency'], year: number): Promise<string | null> {
+    const dates = [...this.rows.values()].filter((q) => q.currency === currency && q.date.startsWith(`${year}-`)).map((q) => q.date).sort();
+    return dates.at(-1) ?? null;
+  }
+}
+
+/** UnitOfWork en memoria con sólo los repositorios que el test necesita. */
+export function inMemoryUnitOfWork(repos: Partial<Repositories>): UnitOfWork {
+  const all = repos as Repositories;
+  return { transaction: (work) => work(all), read: (work) => work(all) };
 }

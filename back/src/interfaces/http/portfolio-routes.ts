@@ -1,6 +1,7 @@
 import { MANUAL_MOVEMENT_TYPES, CASH_MOVEMENT_TYPES } from '../../domain/cash-movement.ts';
 import { Decimal } from '../../domain/decimal.ts';
 import { DIVIDEND_KINDS, DIVIDEND_STATUSES } from '../../domain/dividend.ts';
+import { FX_CURRENCIES } from '../../domain/fx.ts';
 import { INSTRUMENT_TYPES } from '../../domain/instrument.ts';
 import { TRADE_SIDES } from '../../domain/trade.ts';
 import type { User } from '../../domain/user.ts';
@@ -8,6 +9,8 @@ import type { Accounts } from '../../application/use-cases/accounts.ts';
 import type { Cash } from '../../application/use-cases/cash.ts';
 import type { Catalog } from '../../application/use-cases/catalog.ts';
 import type { DividendInput, Dividends } from '../../application/use-cases/dividends.ts';
+import type { FxRates } from '../../application/use-cases/fx-rates.ts';
+import type { Preferences } from '../../application/use-cases/preferences.ts';
 import type { Portfolio } from '../../application/use-cases/portfolio.ts';
 import type { TradeInput, Trades } from '../../application/use-cases/trades.ts';
 import { HttpError } from './problem.ts';
@@ -18,7 +21,8 @@ import {
   presentInstrument,
   presentMarket,
   presentPage,
-  presentPosition,
+  presentPortfolioSummary,
+  presentPositions,
   presentSummary,
   presentTrade,
   presentTransfer,
@@ -33,6 +37,8 @@ export type PortfolioUseCases = {
   dividends: Dividends;
   cash: Cash;
   portfolio: Portfolio;
+  preferences: Preferences;
+  fxRates: FxRates;
 };
 
 type Authed = (handler: (req: HttpRequest, user: User) => Promise<HttpResponse>) => (req: HttpRequest) => Promise<HttpResponse>;
@@ -119,7 +125,31 @@ function readDividendInput(body: unknown): DividendInput {
 }
 
 export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCases, authed: Authed): void {
-  const { catalog, accounts, trades, dividends, cash, portfolio } = useCases;
+  const { catalog, accounts, trades, dividends, cash, portfolio, preferences, fxRates } = useCases;
+
+  // ── Preferencias y tipos de cambio (v0.3) ──
+  router.add('GET', `${API}/me/preferences`, authed(async (_req, user) => ok(await preferences.get(user.id))));
+  router.add('PATCH', `${API}/me/preferences`, authed(async (req, user) => {
+    const r = Reader.body(req.body, ['reportingCurrency'], { minProperties: 1 });
+    const changes = { reportingCurrency: r.currency('reportingCurrency', { optional: true }) };
+    r.finish();
+    return ok(await preferences.update(user.id, changes));
+  }));
+  router.add('GET', `${API}/fx-rates`, authed(async (req) => {
+    const r = Reader.query(req.query);
+    const q = {
+      base: r.enumOf('base', FX_CURRENCIES),
+      quote: r.enumOf('quote', FX_CURRENCIES),
+      from: r.date('from', { optional: true }),
+      to: r.date('to', { optional: true }),
+    };
+    r.finish();
+    const items = await fxRates.series(q.base!, q.quote!, q.from, q.to);
+    return ok({ base: q.base, quote: q.quote, items: items.map((p) => ({ date: p.date, rate: p.rate.toString() })) });
+  }));
+  router.add('GET', `${API}/fx-rates/latest`, authed(async () =>
+    ok({ items: (await fxRates.latest()).map((v) => ({ base: v.base, quote: v.quote, date: v.date, rate: v.rate.toString(), source: v.source })) }),
+  ));
 
   // ── Catálogo ──
   router.add('GET', `${API}/markets`, authed(async () => ok({ items: (await catalog.listMarkets()).map(presentMarket) })));
@@ -236,6 +266,7 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
       year: r.integer('year', { min: 2000, max: 2100 }),
       status: r.enumOf('status', DIVIDEND_STATUSES, { optional: true }),
       accountId: r.uuid('accountId', { optional: true }),
+      reportingCurrency: r.currency('reportingCurrency', { optional: true }),
     };
     r.finish();
     return ok(presentSummary(await portfolio.dividendSummary(user.id, { ...query, year: query.year! })));
@@ -336,9 +367,17 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
       accountId: r.uuid('accountId', { optional: true }),
       includeClosed: r.boolean('includeClosed', { optional: true }) ?? false,
       asOf: r.date('asOf', { optional: true }),
+      reportingCurrency: r.currency('reportingCurrency', { optional: true }),
     };
     r.finish();
-    return ok({ items: (await portfolio.positions(user.id, query)).map(presentPosition) });
+    return ok(presentPositions(await portfolio.positions(user.id, query)));
+  }));
+
+  router.add('GET', `${API}/portfolio/summary`, authed(async (req, user) => {
+    const r = Reader.query(req.query);
+    const query = { reportingCurrency: r.currency('reportingCurrency', { optional: true }), asOf: r.date('asOf', { optional: true }) };
+    r.finish();
+    return ok(presentPortfolioSummary(await portfolio.summary(user.id, query)));
   }));
 }
 

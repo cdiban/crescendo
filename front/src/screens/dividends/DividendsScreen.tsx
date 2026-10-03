@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Api, Dividend, DividendStatus, DividendSummary } from '../../api/client.ts';
+import type { Api, Currency, Dividend, DividendStatus, DividendSummary } from '../../api/client.ts';
 import { InputError } from '../../api/errors.ts';
 import { ConfirmDialog, Modal } from '../../components/Modal.tsx';
 import { Badge, ErrorAlert, Loading, Pager, TableWrap, isZero } from '../../components/ui.tsx';
@@ -10,7 +10,7 @@ import { DividendForm } from './DividendForm.tsx';
 
 const LIMIT = 100;
 
-export function DividendsScreen({ api }: { api: Api }) {
+export function DividendsScreen({ api, reportingCurrency }: { api: Api; reportingCurrency: Currency }) {
   const currentYear = Number(today().slice(0, 4));
   const [year, setYear] = useState(currentYear);
   const [status, setStatus] = useState<DividendStatus | ''>('');
@@ -47,7 +47,10 @@ export function DividendsScreen({ api }: { api: Api }) {
       }),
     [api, year, status, instrumentId, offset, version],
   );
-  const summary = useAsync(() => api.getDividendSummary({ year, status: status || undefined }), [api, year, status, version]);
+  const summary = useAsync(
+    () => api.getDividendSummary({ year, status: status || undefined, reportingCurrency }),
+    [api, year, status, reportingCurrency, version],
+  );
 
   const accountName = (id: string) => refs.data?.accounts.find((a) => a.id === id)?.name ?? '—';
   const years = Array.from({ length: currentYear + 2 - 2015 }, (_, i) => currentYear + 1 - i);
@@ -337,7 +340,41 @@ function SummarySection({ year, summary, error }: { year: number; summary: Divid
                 </tr>
               </tfoot>
             </TableWrap>
-          ))
+          )).concat(
+            <TableWrap key="reporting" label={`Resumen mensual en ${summary.reporting.currency}`} compact>
+              <caption>
+                Total en {summary.reporting.currency} <small className="muted">— cada dividendo al tipo de cambio de su fecha de pago</small>
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    <span className="sr-only">Concepto</span>
+                  </th>
+                  {months.map((m) => (
+                    <th key={m} scope="col" className="num">
+                      {m}
+                    </th>
+                  ))}
+                  <th scope="col" className="num">
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="strong">
+                  <th scope="row">Total en {summary.reporting.currency}</th>
+                  {(view === 'net' ? summary.reporting.monthlyNet : summary.reporting.monthlyGross).map((v, i) => (
+                    <td key={i} className="num">
+                      {cell(v, summary.reporting.currency)}
+                    </td>
+                  ))}
+                  <td className="num strong">
+                    {formatMoney(view === 'net' ? summary.reporting.totalNet : summary.reporting.totalGross, summary.reporting.currency)}
+                  </td>
+                </tr>
+              </tbody>
+            </TableWrap>,
+          )
         )
       ) : (
         !error && <Loading />

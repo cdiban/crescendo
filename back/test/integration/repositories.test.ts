@@ -19,7 +19,7 @@ describe('repositorios TypeORM (Postgres real)', () => {
 
   test('UserRepository: add + findByEmail + findById', async () => {
     const { users } = container.repositories;
-    const created = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'scrypt$x', createdAt: NOW });
+    const created = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'scrypt$x', createdAt: NOW, reportingCurrency: 'USD' });
 
     assert.match(created.id, /^[0-9a-f-]{36}$/);
     const byEmail = await users.findByEmail(Email.create('ANA@example.com'));
@@ -34,9 +34,9 @@ describe('repositorios TypeORM (Postgres real)', () => {
 
   test('UserRepository: email duplicado → EmailAlreadyRegistered (constraint UNIQUE)', async () => {
     const { users } = container.repositories;
-    await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW });
+    await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW, reportingCurrency: 'USD' });
     await assert.rejects(
-      users.add({ email: Email.create('ana@example.com'), passwordHash: 'y', createdAt: NOW }),
+      users.add({ email: Email.create('ana@example.com'), passwordHash: 'y', createdAt: NOW, reportingCurrency: 'USD' }),
       EmailAlreadyRegisteredError,
     );
   });
@@ -49,7 +49,7 @@ describe('repositorios TypeORM (Postgres real)', () => {
 
   test('SessionRepository: add + findByTokenHash + delete', async () => {
     const { users, sessions } = container.repositories;
-    const user = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW });
+    const user = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW, reportingCurrency: 'USD' });
     const session = { tokenHash: HASH, userId: user.id, createdAt: NOW, expiresAt: new Date('2026-10-10T12:00:00Z') };
 
     await sessions.add(session);
@@ -60,13 +60,13 @@ describe('repositorios TypeORM (Postgres real)', () => {
 
   test('la BD sólo acepta hashes SHA-256 como token_hash (nunca el token en claro)', async () => {
     const { users, sessions } = container.repositories;
-    const user = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW });
+    const user = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW, reportingCurrency: 'USD' });
     await assert.rejects(sessions.add({ tokenHash: 'token-en-claro', userId: user.id, createdAt: NOW, expiresAt: NOW }));
   });
 
   test('borrar el usuario borra sus sesiones (ON DELETE CASCADE)', async () => {
     const { users, sessions } = container.repositories;
-    const user = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW });
+    const user = await users.add({ email: Email.create('ana@example.com'), passwordHash: 'x', createdAt: NOW, reportingCurrency: 'USD' });
     await sessions.add({ tokenHash: HASH, userId: user.id, createdAt: NOW, expiresAt: NOW });
     await container.dataSource.query('DELETE FROM users WHERE id = $1', [user.id]);
     assert.equal(await sessions.findByTokenHash(HASH), null);

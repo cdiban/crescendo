@@ -5,7 +5,13 @@ import type { AccountView } from '../../application/use-cases/accounts.ts';
 import type { CashTransferView } from '../../application/use-cases/cash.ts';
 import type { InstrumentView } from '../../application/use-cases/catalog.ts';
 import type { DividendView } from '../../application/use-cases/dividends.ts';
-import type { DividendSummary, PositionView } from '../../application/use-cases/portfolio.ts';
+import type {
+  DividendSummary,
+  PortfolioSummary,
+  PositionsResult,
+  PositionView,
+  ReportingAmounts,
+} from '../../application/use-cases/portfolio.ts';
 import type { TradeView } from '../../application/use-cases/trades.ts';
 
 // DTOs del contrato: montos siempre como string decimal, nunca number.
@@ -105,6 +111,16 @@ export const presentTransfer = (t: CashTransferView) => ({
   rate: s(t.rate),
 });
 
+export const presentReporting = (r: ReportingAmounts) => ({
+  currency: r.currency,
+  costBasis: s(r.costBasis),
+  costBasisAtCurrentRate: s(r.costBasisAtCurrentRate),
+  fxEffect: s(r.fxEffect),
+  realizedGain: s(r.realizedGain),
+  dividendsNet: s(r.dividendsNet),
+  expectedAnnualIncomeGross: sn(r.expectedAnnualIncomeGross),
+});
+
 export const presentPosition = (p: PositionView) => ({
   accountId: p.accountId,
   instrumentId: p.instrumentId,
@@ -125,10 +141,52 @@ export const presentPosition = (p: PositionView) => ({
   yieldOnCost: sn(p.yieldOnCost),
   firstTradeDate: p.firstTradeDate,
   paymentMonths: p.paymentMonths,
+  reporting: presentReporting(p.reporting),
+});
+
+export const presentPositions = (r: PositionsResult) => ({
+  reportingCurrency: r.reportingCurrency,
+  fxAsOf: r.fxAsOf,
+  items: r.items.map(presentPosition),
+  totalsByCurrency: r.totalsByCurrency.map((t) => ({
+    currency: t.currency,
+    costBasis: s(t.costBasis),
+    realizedGain: s(t.realizedGain),
+    dividendsGross: s(t.dividendsGross),
+    dividendsNet: s(t.dividendsNet),
+    expectedAnnualIncomeGross: s(t.expectedAnnualIncomeGross),
+  })),
+  total: presentReporting(r.total),
+});
+
+export const presentPortfolioSummary = (p: PortfolioSummary) => ({
+  reportingCurrency: p.reportingCurrency,
+  asOf: p.asOf,
+  fxAsOf: p.fxAsOf,
+  contributedCapital: s(p.contributedCapital),
+  costBasis: s(p.costBasis),
+  costBasisAtCurrentRate: s(p.costBasisAtCurrentRate),
+  cash: s(p.cash),
+  fxEffect: { positions: s(p.fxEffect.positions), cash: s(p.fxEffect.cash), total: s(p.fxEffect.total) },
+  realizedGain: s(p.realizedGain),
+  dividends: {
+    netYearToDate: s(p.dividends.netYearToDate),
+    netLast12Months: s(p.dividends.netLast12Months),
+    netTotal: s(p.dividends.netTotal),
+    expectedAnnualGross: s(p.dividends.expectedAnnualGross),
+  },
+  exposure: p.exposure.map((e) => ({ currency: e.currency, amount: s(e.amount), weight: s(e.weight) })),
 });
 
 export const presentSummary = (summary: DividendSummary) => ({
   year: summary.year,
+  reporting: {
+    currency: summary.reporting.currency,
+    monthlyGross: summary.reporting.monthlyGross.map(s),
+    monthlyNet: summary.reporting.monthlyNet.map(s),
+    totalGross: s(summary.reporting.totalGross),
+    totalNet: s(summary.reporting.totalNet),
+  },
   groups: summary.groups.map((g) => ({
     currency: g.currency,
     rows: g.rows.map((r) => ({

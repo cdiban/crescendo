@@ -231,7 +231,8 @@ export interface paths {
         };
         /**
          * Dividendos de un año por instrumento y mes (equivalente a la tabla mensual del Excel)
-         * @description Agrupa por moneda original (la conversión a una moneda de reporte llega en Fase 2).
+         * @description `groups`: por moneda original. `reporting` (v0.3): todos los dividendos convertidos a la moneda de reporte al tipo de cambio
+         *     de su fecha de pago (los ANNOUNCED con fecha futura usan el último disponible).
          */
         get: operations["getDividendSummary"];
         put?: never;
@@ -376,6 +377,76 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/portfolio/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Indicadores consolidados en moneda de reporte (base del dashboard de Fase 4) */
+        get: operations["getPortfolioSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/fx-rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Serie histórica de un par, más antigua primero
+         * @description Se puede pedir cualquier par entre CLP, USD, EUR y CLF (UF); los cruces se derivan vía CLP.
+         */
+        get: operations["listFxRates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/fx-rates/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Último tipo de cambio de los pares de referencia (USD/CLP, EUR/CLP, EUR/USD, CLF/CLP) */
+        get: operations["getLatestFxRates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPreferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updatePreferences"];
         trace?: never;
     };
 }
@@ -683,6 +754,13 @@ export interface components {
         };
         DividendSummary: {
             year: number;
+            reporting: {
+                currency: components["schemas"]["Currency"];
+                monthlyGross: components["schemas"]["Decimal"][];
+                monthlyNet: components["schemas"]["Decimal"][];
+                totalGross: components["schemas"]["Decimal"];
+                totalNet: components["schemas"]["Decimal"];
+            };
             /** @description Un grupo por moneda */
             groups: {
                 currency: components["schemas"]["Currency"];
@@ -734,6 +812,91 @@ export interface components {
             firstTradeDate: components["schemas"]["Date"];
             /** @description Meses con dividendos PAID en los últimos 12 meses (equivale a "Meses de pago" del Excel) */
             paymentMonths: number[];
+            reporting: components["schemas"]["ReportingAmounts"];
+        };
+        PositionTotals: {
+            currency: components["schemas"]["Currency"];
+            costBasis: components["schemas"]["Decimal"];
+            realizedGain: components["schemas"]["Decimal"];
+            dividendsGross: components["schemas"]["Decimal"];
+            dividendsNet: components["schemas"]["Decimal"];
+            /** @description Suma de las filas con dato (las null no suman) */
+            expectedAnnualIncomeGross: components["schemas"]["Decimal"];
+        };
+        /**
+         * @description Montos de una posición (o suma) en moneda de reporte. Si la moneda del instrumento = moneda de reporte, fxEffect = 0.
+         *     Invariante: costBasisAtCurrentRate − costBasis = fxEffect.
+         */
+        ReportingAmounts: {
+            currency: components["schemas"]["Currency"];
+            /** @description Costo vigente a tipos de cambio históricos (de cada compra */
+            costBasis: components["schemas"]["Decimal"];
+            /** @description costBasis en moneda original × tipo de cambio actual */
+            costBasisAtCurrentRate: components["schemas"]["Decimal"];
+            /** @description Ganancia/pérdida sólo por tipo de cambio sobre el costo vigente */
+            fxEffect: components["schemas"]["Decimal"];
+            /** @description Ventas a TC de la venta − costo descargado a TC histórico (incluye efecto cambiario realizado) */
+            realizedGain: components["schemas"]["Decimal"];
+            /** @description Dividendos PAID netos */
+            dividendsNet: components["schemas"]["Decimal"];
+            /** @description A TC actual */
+            expectedAnnualIncomeGross: components["schemas"]["Decimal"] | null;
+        };
+        /**
+         * @description Currency + CLF (Unidad de Fomento), sólo para tipos de cambio
+         * @enum {string}
+         */
+        FxCurrency: "CLP" | "USD" | "EUR" | "CLF";
+        FxPoint: {
+            date: components["schemas"]["Date"];
+            /** @description 1 base = rate quote */
+            rate: components["schemas"]["Decimal"];
+        };
+        FxRate: {
+            base: components["schemas"]["FxCurrency"];
+            quote: components["schemas"]["FxCurrency"];
+            date: components["schemas"]["Date"];
+            rate: components["schemas"]["Decimal"];
+            /** @description Ej. "mindicador:dolar" o "derived:CLP" */
+            source: string;
+        };
+        Preferences: {
+            /** @description Default USD */
+            reportingCurrency: components["schemas"]["Currency"];
+        };
+        PortfolioSummary: {
+            reportingCurrency: components["schemas"]["Currency"];
+            asOf: components["schemas"]["Date"];
+            fxAsOf: components["schemas"]["Date"];
+            /** @description Σ DEPOSIT − Σ WITHDRAWAL */
+            contributedCapital: components["schemas"]["Decimal"];
+            /** @description Costo vigente de posiciones a TC históricos */
+            costBasis: components["schemas"]["Decimal"];
+            costBasisAtCurrentRate: components["schemas"]["Decimal"];
+            /** @description Saldos de caja a TC actual */
+            cash: components["schemas"]["Decimal"];
+            fxEffect: {
+                positions: components["schemas"]["Decimal"];
+                /** @description Saldo a TC actual − Σ movimientos a TC de su fecha (caja en moneda distinta a la de reporte) */
+                cash: components["schemas"]["Decimal"];
+                total: components["schemas"]["Decimal"];
+            };
+            realizedGain: components["schemas"]["Decimal"];
+            dividends: {
+                netYearToDate: components["schemas"]["Decimal"];
+                netLast12Months: components["schemas"]["Decimal"];
+                netTotal: components["schemas"]["Decimal"];
+                /** @description Σ quantity × annualDividendPerShare a TC actual */
+                expectedAnnualGross: components["schemas"]["Decimal"];
+            };
+            /** @description Distribución por moneda de (costo vigente a TC actual + caja); suma 1 */
+            exposure: {
+                currency: components["schemas"]["Currency"];
+                /** @description En moneda de reporte */
+                amount: components["schemas"]["Decimal"];
+                /** @description Fracción 0–1 */
+                weight: components["schemas"]["Decimal"];
+            }[];
         };
         /** @description RFC 9457 Problem Details + `code` estable para que el front decida. */
         Problem: {
@@ -751,10 +914,11 @@ export interface components {
              *       ACCOUNT_ARCHIVED (movimientos nuevos en cuenta archivada),
              *       AUTOMATIC_MOVEMENT (borrar directamente un movimiento automático),
              *       NO_POSITION_FOR_DIVIDEND (perShare sin quantity y sin posición en la fecha),
-             *       INVALID_STATE (p. ej. mark-paid sobre un dividendo ya PAID).
+             *       INVALID_STATE (p. ej. mark-paid sobre un dividendo ya PAID),
+             *       FX_RATE_UNAVAILABLE (no hay tipo de cambio en o antes de la fecha requerida).
              * @enum {string}
              */
-            code: "VALIDATION_ERROR" | "INVALID_CREDENTIALS" | "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND" | "METHOD_NOT_ALLOWED" | "CONFLICT" | "PAYLOAD_TOO_LARGE" | "INSUFFICIENT_POSITION" | "CURRENCY_MISMATCH" | "ACCOUNT_ARCHIVED" | "AUTOMATIC_MOVEMENT" | "NO_POSITION_FOR_DIVIDEND" | "INVALID_STATE" | "INTERNAL_ERROR";
+            code: "VALIDATION_ERROR" | "INVALID_CREDENTIALS" | "UNAUTHENTICATED" | "FORBIDDEN" | "NOT_FOUND" | "METHOD_NOT_ALLOWED" | "CONFLICT" | "PAYLOAD_TOO_LARGE" | "INSUFFICIENT_POSITION" | "CURRENCY_MISMATCH" | "ACCOUNT_ARCHIVED" | "AUTOMATIC_MOVEMENT" | "NO_POSITION_FOR_DIVIDEND" | "INVALID_STATE" | "FX_RATE_UNAVAILABLE" | "INTERNAL_ERROR";
             /** @description Sólo en VALIDATION_ERROR */
             errors?: {
                 field: string;
@@ -830,6 +994,8 @@ export interface components {
         InstrumentId: string;
         TradeId: string;
         DividendId: string;
+        /** @description Default la preferencia del usuario */
+        ReportingCurrency: components["schemas"]["Currency"];
     };
     requestBodies: never;
     headers: never;
@@ -1444,6 +1610,8 @@ export interface operations {
                 /** @description Si se omite incluye ambos */
                 status?: components["schemas"]["DividendStatus"];
                 accountId?: components["parameters"]["AccountIdQuery"];
+                /** @description Default la preferencia del usuario */
+                reportingCurrency?: components["parameters"]["ReportingCurrency"];
             };
             header?: never;
             path?: never;
@@ -1723,6 +1891,8 @@ export interface operations {
                 includeClosed?: boolean;
                 /** @description Fecha de corte (default hoy) */
                 asOf?: components["schemas"]["Date"];
+                /** @description Default la preferencia del usuario */
+                reportingCurrency?: components["parameters"]["ReportingCurrency"];
             };
             header?: never;
             path?: never;
@@ -1730,19 +1900,161 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Posiciones ordenadas por moneda y símbolo */
+            /** @description Posiciones ordenadas por moneda y símbolo, con totales por moneda original y total en moneda de reporte */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        reportingCurrency: components["schemas"]["Currency"];
+                        /** @description Fecha del último tipo de cambio usado como "actual" */
+                        fxAsOf: components["schemas"]["Date"];
                         items: components["schemas"]["Position"][];
+                        /** @description Suma de las filas por moneda original (sin conversión) */
+                        totalsByCurrency: components["schemas"]["PositionTotals"][];
+                        /** @description Suma de `reporting` de todas las filas */
+                        total: components["schemas"]["ReportingAmounts"];
                     };
                 };
             };
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    getPortfolioSummary: {
+        parameters: {
+            query?: {
+                /** @description Default la preferencia del usuario */
+                reportingCurrency?: components["parameters"]["ReportingCurrency"];
+                /** @description Fecha de corte (default hoy) */
+                asOf?: components["schemas"]["Date"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resumen */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortfolioSummary"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    listFxRates: {
+        parameters: {
+            query: {
+                base: components["schemas"]["FxCurrency"];
+                quote: components["schemas"]["FxCurrency"];
+                /** @description Fecha mínima inclusiva */
+                from?: components["parameters"]["From"];
+                /** @description Fecha máxima inclusiva */
+                to?: components["parameters"]["To"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Serie (sólo días con publicación; máx. 4000 puntos) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        base: components["schemas"]["FxCurrency"];
+                        quote: components["schemas"]["FxCurrency"];
+                        items: components["schemas"]["FxPoint"][];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getLatestFxRates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Últimos valores */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["FxRate"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preferencias del usuario */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferences"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    updatePreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reportingCurrency?: components["schemas"]["Currency"];
+                };
+            };
+        };
+        responses: {
+            /** @description Actualizadas */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferences"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

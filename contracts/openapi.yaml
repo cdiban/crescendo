@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Crescendo API
-  version: 0.2.1
+  version: 0.3.0
   description: |
     Contrato de la API de Crescendo. Fuente de verdad compartida por Crescendo Back y Crescendo Front.
     Cualquier cambio se propone al orquestador (Crescendo) antes de aplicarse.
@@ -18,6 +18,10 @@ info:
     - (v0.2) Fechas de negocio en `YYYY-MM-DD` (sin hora ni zona). Timestamps técnicos en ISO 8601 UTC.
     - (v0.2) Recursos de otro usuario se comportan como inexistentes (404 NOT_FOUND).
     - (v0.2) Listados: `limit` (1–500, default 100) y `offset` (default 0); respuesta `{ items, total }`.
+    - (v0.3) Moneda de reporte: los endpoints que convierten aceptan `reportingCurrency`; si se omite, se usa la preferencia del usuario.
+      Conversión: montos históricos (costo, aportes, dividendos cobrados, ganancia realizada) al tipo de cambio de **su fecha**;
+      montos vigentes (saldos, costo "a tipo de cambio actual") al **último** tipo de cambio disponible.
+      Tipo de cambio de una fecha = último publicado en o antes de esa fecha (fines de semana y feriados usan el día hábil anterior).
 servers:
   - url: /api/v1
 tags:
@@ -29,6 +33,8 @@ tags:
   - name: dividends
   - name: cash
   - name: portfolio
+  - name: fx
+  - name: preferences
 paths:
   /health:
     get:
@@ -421,11 +427,14 @@ paths:
       tags: [dividends]
       operationId: getDividendSummary
       summary: Dividendos de un año por instrumento y mes (equivalente a la tabla mensual del Excel)
-      description: Agrupa por moneda original (la conversión a una moneda de reporte llega en Fase 2).
+      description: |
+        `groups`: por moneda original. `reporting` (v0.3): todos los dividendos convertidos a la moneda de reporte al tipo de cambio
+        de su fecha de pago (los ANNOUNCED con fecha futura usan el último disponible).
       parameters:
         - { name: year, in: query, required: true, schema: { type: integer, minimum: 2000, maximum: 2100 } }
         - { name: status, in: query, description: Si se omite incluye ambos, schema: { $ref: '#/components/schemas/DividendStatus' } }
         - $ref: '#/components/parameters/AccountIdQuery'
+        - $ref: '#/components/parameters/ReportingCurrency'
       responses:
         '200':
           description: Resumen
@@ -611,18 +620,123 @@ paths:
         - $ref: '#/components/parameters/AccountIdQuery'
         - { name: includeClosed, in: query, schema: { type: boolean, default: false }, description: Incluir posiciones con cantidad 0 }
         - { name: asOf, in: query, schema: { $ref: '#/components/schemas/Date' }, description: Fecha de corte (default hoy) }
+        - $ref: '#/components/parameters/ReportingCurrency'
       responses:
         '200':
-          description: Posiciones ordenadas por moneda y símbolo
+          description: Posiciones ordenadas por moneda y símbolo, con totales por moneda original y total en moneda de reporte
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reportingCurrency, fxAsOf, items, totalsByCurrency, total]
+                properties:
+                  reportingCurrency: { $ref: '#/components/schemas/Currency' }
+                  fxAsOf: { $ref: '#/components/schemas/Date', description: Fecha del último tipo de cambio usado como "actual" }
+                  items: { type: array, items: { $ref: '#/components/schemas/Position' } }
+                  totalsByCurrency:
+                    type: array
+                    description: Suma de las filas por moneda original (sin conversión)
+                    items: { $ref: '#/components/schemas/PositionTotals' }
+                  total: { $ref: '#/components/schemas/ReportingAmounts', description: Suma de `reporting` de todas las filas }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /portfolio/summary:
+    get:
+      tags: [portfolio]
+      operationId: getPortfolioSummary
+      summary: Indicadores consolidados en moneda de reporte (base del dashboard de Fase 4)
+      parameters:
+        - $ref: '#/components/parameters/ReportingCurrency'
+        - { name: asOf, in: query, schema: { $ref: '#/components/schemas/Date' }, description: Fecha de corte (default hoy) }
+      responses:
+        '200':
+          description: Resumen
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioSummary' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /fx-rates:
+    get:
+      tags: [fx]
+      operationId: listFxRates
+      summary: Serie histórica de un par, más antigua primero
+      description: Se puede pedir cualquier par entre CLP, USD, EUR y CLF (UF); los cruces se derivan vía CLP.
+      parameters:
+        - { name: base, in: query, required: true, schema: { $ref: '#/components/schemas/FxCurrency' } }
+        - { name: quote, in: query, required: true, schema: { $ref: '#/components/schemas/FxCurrency' } }
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Serie (sólo días con publicación; máx. 4000 puntos)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [base, quote, items]
+                properties:
+                  base: { $ref: '#/components/schemas/FxCurrency' }
+                  quote: { $ref: '#/components/schemas/FxCurrency' }
+                  items: { type: array, items: { $ref: '#/components/schemas/FxPoint' } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /fx-rates/latest:
+    get:
+      tags: [fx]
+      operationId: getLatestFxRates
+      summary: Último tipo de cambio de los pares de referencia (USD/CLP, EUR/CLP, EUR/USD, CLF/CLP)
+      responses:
+        '200':
+          description: Últimos valores
           content:
             application/json:
               schema:
                 type: object
                 required: [items]
                 properties:
-                  items: { type: array, items: { $ref: '#/components/schemas/Position' } }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/FxRate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/preferences:
+    get:
+      tags: [preferences]
+      operationId: getPreferences
+      responses:
+        '200':
+          description: Preferencias del usuario
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [preferences]
+      operationId: updatePreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                reportingCurrency: { $ref: '#/components/schemas/Currency' }
+      responses:
+        '200':
+          description: Actualizadas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
 components:
   securitySchemes:
@@ -641,6 +755,7 @@ components:
     InstrumentId: { name: instrumentId, in: path, required: true, schema: { type: string, format: uuid } }
     TradeId: { name: tradeId, in: path, required: true, schema: { type: string, format: uuid } }
     DividendId: { name: dividendId, in: path, required: true, schema: { type: string, format: uuid } }
+    ReportingCurrency: { name: reportingCurrency, in: query, description: Default la preferencia del usuario, schema: { $ref: '#/components/schemas/Currency' } }
   schemas:
     Health:
       type: object
@@ -934,9 +1049,18 @@ components:
         total: { type: integer }
     DividendSummary:
       type: object
-      required: [year, groups]
+      required: [year, groups, reporting]
       properties:
         year: { type: integer }
+        reporting:
+          type: object
+          required: [currency, monthlyGross, monthlyNet, totalGross, totalNet]
+          properties:
+            currency: { $ref: '#/components/schemas/Currency' }
+            monthlyGross: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' } }
+            monthlyNet: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' } }
+            totalGross: { $ref: '#/components/schemas/Decimal' }
+            totalNet: { $ref: '#/components/schemas/Decimal' }
         groups:
           type: array
           description: Un grupo por moneda
@@ -965,7 +1089,7 @@ components:
     # ── Portafolio ──
     Position:
       type: object
-      required: [accountId, instrumentId, symbol, name, marketCode, type, sector, currency, quantity, averageCost, costBasis, realizedGain, dividendsGross, dividendsNet, annualDividendPerShare, expectedAnnualIncomeGross, yieldOnCost, firstTradeDate, paymentMonths]
+      required: [accountId, instrumentId, symbol, name, marketCode, type, sector, currency, quantity, averageCost, costBasis, realizedGain, dividendsGross, dividendsNet, annualDividendPerShare, expectedAnnualIncomeGross, yieldOnCost, firstTradeDate, paymentMonths, reporting]
       properties:
         accountId: { type: [string, 'null'], format: uuid, description: null cuando groupBy=instrument }
         instrumentId: { type: string, format: uuid }
@@ -986,6 +1110,94 @@ components:
         yieldOnCost: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: annualDividendPerShare / averageCost, fracción }
         firstTradeDate: { $ref: '#/components/schemas/Date' }
         paymentMonths: { type: array, items: { type: integer, minimum: 1, maximum: 12 }, description: Meses con dividendos PAID en los últimos 12 meses (equivale a "Meses de pago" del Excel) }
+        reporting: { $ref: '#/components/schemas/ReportingAmounts' }
+    PositionTotals:
+      type: object
+      required: [currency, costBasis, realizedGain, dividendsGross, dividendsNet, expectedAnnualIncomeGross]
+      properties:
+        currency: { $ref: '#/components/schemas/Currency' }
+        costBasis: { $ref: '#/components/schemas/Decimal' }
+        realizedGain: { $ref: '#/components/schemas/Decimal' }
+        dividendsGross: { $ref: '#/components/schemas/Decimal' }
+        dividendsNet: { $ref: '#/components/schemas/Decimal' }
+        expectedAnnualIncomeGross: { $ref: '#/components/schemas/Decimal', description: Suma de las filas con dato (las null no suman) }
+    ReportingAmounts:
+      type: object
+      description: |
+        Montos de una posición (o suma) en moneda de reporte. Si la moneda del instrumento = moneda de reporte, fxEffect = 0.
+        Invariante: costBasisAtCurrentRate − costBasis = fxEffect.
+      required: [currency, costBasis, costBasisAtCurrentRate, fxEffect, realizedGain, dividendsNet, expectedAnnualIncomeGross]
+      properties:
+        currency: { $ref: '#/components/schemas/Currency' }
+        costBasis: { $ref: '#/components/schemas/Decimal', description: Costo vigente a tipos de cambio históricos (de cada compra, descargado a costo promedio en moneda de reporte en las ventas) }
+        costBasisAtCurrentRate: { $ref: '#/components/schemas/Decimal', description: costBasis en moneda original × tipo de cambio actual }
+        fxEffect: { $ref: '#/components/schemas/Decimal', description: Ganancia/pérdida sólo por tipo de cambio sobre el costo vigente }
+        realizedGain: { $ref: '#/components/schemas/Decimal', description: Ventas a TC de la venta − costo descargado a TC histórico (incluye efecto cambiario realizado) }
+        dividendsNet: { $ref: '#/components/schemas/Decimal', description: Dividendos PAID netos, cada uno a TC de su fecha de pago }
+        expectedAnnualIncomeGross: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: A TC actual }
+
+    # ── Moneda de reporte y tipos de cambio (v0.3) ──
+    FxCurrency:
+      type: string
+      enum: [CLP, USD, EUR, CLF]
+      description: Currency + CLF (Unidad de Fomento), sólo para tipos de cambio
+    FxPoint:
+      type: object
+      required: [date, rate]
+      properties:
+        date: { $ref: '#/components/schemas/Date' }
+        rate: { $ref: '#/components/schemas/Decimal', description: 1 base = rate quote }
+    FxRate:
+      type: object
+      required: [base, quote, date, rate, source]
+      properties:
+        base: { $ref: '#/components/schemas/FxCurrency' }
+        quote: { $ref: '#/components/schemas/FxCurrency' }
+        date: { $ref: '#/components/schemas/Date' }
+        rate: { $ref: '#/components/schemas/Decimal' }
+        source: { type: string, description: 'Ej. "mindicador:dolar" o "derived:CLP"' }
+    Preferences:
+      type: object
+      required: [reportingCurrency]
+      properties:
+        reportingCurrency: { $ref: '#/components/schemas/Currency', description: Default USD }
+    PortfolioSummary:
+      type: object
+      required: [reportingCurrency, asOf, fxAsOf, contributedCapital, costBasis, costBasisAtCurrentRate, cash, fxEffect, realizedGain, dividends, exposure]
+      properties:
+        reportingCurrency: { $ref: '#/components/schemas/Currency' }
+        asOf: { $ref: '#/components/schemas/Date' }
+        fxAsOf: { $ref: '#/components/schemas/Date' }
+        contributedCapital: { $ref: '#/components/schemas/Decimal', description: Σ DEPOSIT − Σ WITHDRAWAL, cada uno a TC de su fecha }
+        costBasis: { $ref: '#/components/schemas/Decimal', description: Costo vigente de posiciones a TC históricos }
+        costBasisAtCurrentRate: { $ref: '#/components/schemas/Decimal' }
+        cash: { $ref: '#/components/schemas/Decimal', description: Saldos de caja a TC actual }
+        fxEffect:
+          type: object
+          required: [positions, cash, total]
+          properties:
+            positions: { $ref: '#/components/schemas/Decimal' }
+            cash: { $ref: '#/components/schemas/Decimal', description: Saldo a TC actual − Σ movimientos a TC de su fecha (caja en moneda distinta a la de reporte) }
+            total: { $ref: '#/components/schemas/Decimal' }
+        realizedGain: { $ref: '#/components/schemas/Decimal' }
+        dividends:
+          type: object
+          required: [netYearToDate, netLast12Months, netTotal, expectedAnnualGross]
+          properties:
+            netYearToDate: { $ref: '#/components/schemas/Decimal' }
+            netLast12Months: { $ref: '#/components/schemas/Decimal' }
+            netTotal: { $ref: '#/components/schemas/Decimal' }
+            expectedAnnualGross: { $ref: '#/components/schemas/Decimal', description: Σ quantity × annualDividendPerShare a TC actual }
+        exposure:
+          type: array
+          description: Distribución por moneda de (costo vigente a TC actual + caja); suma 1
+          items:
+            type: object
+            required: [currency, amount, weight]
+            properties:
+              currency: { $ref: '#/components/schemas/Currency' }
+              amount: { $ref: '#/components/schemas/Decimal', description: En moneda de reporte }
+              weight: { $ref: '#/components/schemas/Decimal', description: Fracción 0–1 }
 
     # ── Errores ──
     Problem:
@@ -999,7 +1211,7 @@ components:
         detail: { type: string }
         code:
           type: string
-          enum: [VALIDATION_ERROR, INVALID_CREDENTIALS, UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, METHOD_NOT_ALLOWED, CONFLICT, PAYLOAD_TOO_LARGE, INSUFFICIENT_POSITION, CURRENCY_MISMATCH, ACCOUNT_ARCHIVED, AUTOMATIC_MOVEMENT, NO_POSITION_FOR_DIVIDEND, INVALID_STATE, INTERNAL_ERROR]
+          enum: [VALIDATION_ERROR, INVALID_CREDENTIALS, UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, METHOD_NOT_ALLOWED, CONFLICT, PAYLOAD_TOO_LARGE, INSUFFICIENT_POSITION, CURRENCY_MISMATCH, ACCOUNT_ARCHIVED, AUTOMATIC_MOVEMENT, NO_POSITION_FOR_DIVIDEND, INVALID_STATE, FX_RATE_UNAVAILABLE, INTERNAL_ERROR]
           description: |
             400 VALIDATION_ERROR · 401 INVALID_CREDENTIALS | UNAUTHENTICATED · 403 FORBIDDEN · 404 NOT_FOUND ·
             405 METHOD_NOT_ALLOWED (con cabecera Allow) · 409 CONFLICT · 413 PAYLOAD_TOO_LARGE · 500 INTERNAL_ERROR ·
@@ -1009,7 +1221,8 @@ components:
               ACCOUNT_ARCHIVED (movimientos nuevos en cuenta archivada),
               AUTOMATIC_MOVEMENT (borrar directamente un movimiento automático),
               NO_POSITION_FOR_DIVIDEND (perShare sin quantity y sin posición en la fecha),
-              INVALID_STATE (p. ej. mark-paid sobre un dividendo ya PAID).
+              INVALID_STATE (p. ej. mark-paid sobre un dividendo ya PAID),
+              FX_RATE_UNAVAILABLE (no hay tipo de cambio en o antes de la fecha requerida).
         errors:
           type: array
           description: Sólo en VALIDATION_ERROR

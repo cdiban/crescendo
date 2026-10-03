@@ -1,3 +1,5 @@
+import { isBusinessDate } from '../domain/dates.ts';
+
 export type Config = {
   databaseUrl: string;
   appOrigin: string;
@@ -43,5 +45,25 @@ export function loadConfig(env: Env): Config {
     sessionTtlHours: positiveInt(env, 'SESSION_TTL_HOURS', 168),
     cookieSecure: bool(env, 'COOKIE_SECURE', true),
     port: positiveInt(env, 'PORT', 3000),
+  };
+}
+
+export type WorkerConfig = {
+  databaseUrl: string;
+  sessionTtlHours: number;
+  /** Primer día del backfill de tipos de cambio. */
+  fxBackfillFrom: string;
+  fxSyncIntervalMinutes: number;
+};
+
+/** Configuración del worker: no expone HTTP, así que no necesita APP_ORIGIN ni PORT. */
+export function loadWorkerConfig(env: Env): WorkerConfig {
+  const from = env.FX_BACKFILL_FROM?.trim() || '2024-01-01';
+  if (!isBusinessDate(from)) throw new Error('FX_BACKFILL_FROM debe ser una fecha YYYY-MM-DD');
+  return {
+    databaseUrl: required(env, 'DATABASE_URL'),
+    sessionTtlHours: positiveInt(env, 'SESSION_TTL_HOURS', 168),
+    fxBackfillFrom: from,
+    fxSyncIntervalMinutes: positiveInt(env, 'FX_SYNC_INTERVAL_MINUTES', 360),
   };
 }

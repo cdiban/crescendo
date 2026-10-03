@@ -8,6 +8,20 @@ export type PositionTrade = Pick<
   'accountId' | 'instrumentId' | 'side' | 'tradeDate' | 'quantity' | 'price' | 'commission' | 'commissionTax'
 >;
 
+/** Costo y ganancia en moneda de reporte, llevados en paralelo al costo en moneda original. */
+export type ReportingHolding = {
+  /** Compras a TC de su fecha; las ventas descargan a costo promedio en reporte. 4 decimales. */
+  costBasis: Decimal;
+  /** Neto de venta a TC de la venta − costo descargado en reporte (incluye efecto cambiario realizado). */
+  realizedGain: Decimal;
+};
+
+/**
+ * Convierte un monto en la moneda del instrumento a la moneda de reporte al TC de `date`.
+ * Recibe el monto (no la tasa) para que el adaptador multiplique antes de dividir y no pierda precisión.
+ */
+export type ReportingConversion = { toReporting: (instrumentId: string, amount: Decimal, date: string) => Decimal };
+
 export type Holding = {
   accountId: string;
   instrumentId: string;
@@ -18,6 +32,8 @@ export type Holding = {
   averageCost: Decimal;
   realizedGain: Decimal;
   firstTradeDate: string;
+  /** Sólo si se pidió conversión. */
+  reporting?: ReportingHolding;
 };
 
 // Precisión interna del costo, para no acumular redondeos venta tras venta.
@@ -30,9 +46,22 @@ export function sortTrades<T extends PositionTrade>(trades: readonly T[]): T[] {
   );
 }
 
-/** Posiciones por cuenta + instrumento con costo promedio ponderado. */
-export function computeHoldings(trades: readonly PositionTrade[], asOf?: string): Holding[] {
-  type State = { accountId: string; instrumentId: string; quantity: Decimal; cost: Decimal; realized: Decimal; first: string };
+/**
+ * Posiciones por cuenta + instrumento con costo promedio ponderado. Con `conversion` lleva además
+ * un segundo costo promedio en moneda de reporte (cada compra a su TC; las ventas descargan la
+ * misma fracción del costo en reporte que del costo original).
+ */
+export function computeHoldings(trades: readonly PositionTrade[], asOf?: string, conversion?: ReportingConversion): Holding[] {
+  type State = {
+    accountId: string;
+    instrumentId: string;
+    quantity: Decimal;
+    cost: Decimal;
+    realized: Decimal;
+    first: string;
+    costRep: Decimal;
+    realizedRep: Decimal;
+  };
   const states = new Map<string, State>();
 
   for (const t of sortTrades(trades)) {
@@ -40,22 +69,43 @@ export function computeHoldings(trades: readonly PositionTrade[], asOf?: string)
     const key = `${t.accountId}\u0000${t.instrumentId}`;
     let s = states.get(key);
     if (!s) {
-      s = { accountId: t.accountId, instrumentId: t.instrumentId, quantity: Decimal.ZERO, cost: Decimal.ZERO, realized: Decimal.ZERO, first: t.tradeDate };
+      s = {
+        accountId: t.accountId,
+        instrumentId: t.instrumentId,
+        quantity: Decimal.ZERO,
+        cost: Decimal.ZERO,
+        realized: Decimal.ZERO,
+        first: t.tradeDate,
+        costRep: Decimal.ZERO,
+        realizedRep: Decimal.ZERO,
+      };
       states.set(key, s);
     }
     const gross = t.quantity.mul(t.price);
     const fees = t.commission.add(t.commissionTax);
+    const toReporting = conversion ? (amount: Decimal) => conversion.toReporting(t.instrumentId, amount, t.tradeDate) : null;
     if (t.side === 'BUY') {
+      const total = gross.add(fees);
       s.quantity = s.quantity.add(t.quantity);
-      s.cost = s.cost.add(gross).add(fees);
+      s.cost = s.cost.add(total);
+      if (toReporting) s.costRep = s.costRep.add(toReporting(total));
       continue;
     }
     if (t.quantity.gt(s.quantity)) throw new InsufficientPositionError(t.tradeDate);
-    const released = t.quantity.eq(s.quantity) ? s.cost : s.cost.mul(t.quantity).div(s.quantity, INTERNAL_SCALE);
+    const all = t.quantity.eq(s.quantity);
+    const released = all ? s.cost : s.cost.mul(t.quantity).div(s.quantity, INTERNAL_SCALE);
     s.realized = s.realized.add(gross.sub(fees)).sub(released);
     s.cost = s.cost.sub(released);
+    if (toReporting) {
+      const releasedRep = all ? s.costRep : s.costRep.mul(t.quantity).div(s.quantity, INTERNAL_SCALE);
+      s.realizedRep = s.realizedRep.add(toReporting(gross.sub(fees))).sub(releasedRep);
+      s.costRep = s.costRep.sub(releasedRep);
+    }
     s.quantity = s.quantity.sub(t.quantity);
-    if (s.quantity.isZero()) s.cost = Decimal.ZERO;
+    if (s.quantity.isZero()) {
+      s.cost = Decimal.ZERO;
+      s.costRep = Decimal.ZERO;
+    }
   }
 
   return [...states.values()]
@@ -68,6 +118,9 @@ export function computeHoldings(trades: readonly PositionTrade[], asOf?: string)
       averageCost: s.quantity.isZero() ? Decimal.ZERO : s.cost.div(s.quantity, QUANTITY_SCALE),
       realizedGain: roundAmount(s.realized.round(INTERNAL_SCALE)),
       firstTradeDate: s.first,
+      ...(conversion
+        ? { reporting: { costBasis: roundAmount(s.costRep), realizedGain: roundAmount(s.realizedRep.round(INTERNAL_SCALE)) } }
+        : {}),
     }));
 }
 

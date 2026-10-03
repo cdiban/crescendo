@@ -1,5 +1,5 @@
 import { Email } from '../../domain/email.ts';
-import type { User } from '../../domain/user.ts';
+import { DEFAULT_REPORTING_CURRENCY, type User } from '../../domain/user.ts';
 import { EmailAlreadyRegisteredError, PasswordTooShortError } from '../errors.ts';
 import type { Clock } from '../ports/clock.ts';
 import type { PasswordHasher } from '../ports/password-hasher.ts';
@@ -31,6 +31,11 @@ export class CreateUser {
     }
     if (await users.findByEmail(email)) throw new EmailAlreadyRegisteredError();
 
-    return users.add({ email, passwordHash: await hasher.hash(input.password), createdAt: clock.now() });
+    return users.add({
+      email,
+      passwordHash: await hasher.hash(input.password),
+      createdAt: clock.now(),
+      reportingCurrency: DEFAULT_REPORTING_CURRENCY,
+    });
   }
 }

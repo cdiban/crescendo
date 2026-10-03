@@ -47,3 +47,9 @@ export class InvalidDividendAmountError extends DomainError {
     this.field = field;
   }
 }
+
+export class FxRateUnavailableError extends BusinessRuleError {
+  constructor(currency: string, date: string) {
+    super('FX_RATE_UNAVAILABLE', `No hay tipo de cambio ${currency}/CLP en o antes de ${date}`);
+  }
+}

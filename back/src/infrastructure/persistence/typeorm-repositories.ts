@@ -40,6 +40,7 @@ import {
   MarketSchema,
   TradeSchema,
 } from './schemas.ts';
+import { TypeOrmFxRateRepository } from './typeorm-fx-rate-repository.ts';
 import { TypeOrmUserRepository } from './typeorm-user-repository.ts';
 
 async function page<R extends ObjectLiteral, T>(
@@ -345,6 +346,12 @@ export class TypeOrmCashMovementRepository implements CashMovementRepository {
     await this.#repo().delete({ id, userId });
   }
 
+  async listByUser(userId: string, filter: { to?: string | undefined } = {}): Promise<CashMovement[]> {
+    const qb = this.#repo().createQueryBuilder('c').where('c.user_id = :userId', { userId }).orderBy('c.date', 'ASC').addOrderBy('c.id', 'ASC');
+    if (filter.to) qb.andWhere('c.date <= :to', { to: filter.to });
+    return (await qb.getMany()).map(cashMovementMapper.toDomain);
+  }
+
   async balances(userId: string, accountId?: string): Promise<CashBalance[]> {
     const qb = this.#repo()
       .createQueryBuilder('c')
@@ -370,5 +377,6 @@ export function createRepositories(manager: EntityManager): Repositories {
     trades: new TypeOrmTradeRepository(manager),
     dividends: new TypeOrmDividendRepository(manager),
     cashMovements: new TypeOrmCashMovementRepository(manager),
+    fxRates: new TypeOrmFxRateRepository(manager),
   };
 }
