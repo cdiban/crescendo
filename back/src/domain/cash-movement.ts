@@ -38,6 +38,17 @@ export type CashMovement = {
 
 export type NewCashMovement = Omit<CashMovement, 'id'>;
 
+/**
+ * Descripción del DEPOSIT que deja la importación inicial al cuadrar la caja con el Excel: es el
+ * residuo de lo depositado y no gastado, no un aporte del período. La comparten la herramienta de
+ * importación (que lo genera) y la proyección (que lo excluye del aporte mensual por defecto).
+ */
+export const UNASSIGNED_IMPORT_DEPOSIT_DESCRIPTION = 'Aporte no asignado (importación)';
+
+export function isUnassignedImportDeposit(m: Pick<CashMovement, 'type' | 'source' | 'description'>): boolean {
+  return m.type === 'DEPOSIT' && m.source === 'IMPORT' && m.description === UNASSIGNED_IMPORT_DEPOSIT_DESCRIPTION;
+}
+
 export function isManualMovementType(type: CashMovementType): type is ManualMovementType {
   return (MANUAL_MOVEMENT_TYPES as readonly string[]).includes(type);
 }

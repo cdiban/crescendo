@@ -22,6 +22,17 @@ export function formatMoney(amount: string, currency: Currency): string {
   return format.format(asNumeric(amount));
 }
 
+const amountInputFormats = new Map<Currency, Intl.NumberFormat>();
+/** Monto para mostrar en un input, sin símbolo y redondeado a la moneda ("1634.276" USD → "1.634,28"). */
+export function formatAmountInput(amount: string, currency: Currency): string {
+  let format = amountInputFormats.get(currency);
+  if (!format) {
+    format = new Intl.NumberFormat('es-CL', { minimumFractionDigits: DIGITS[currency], maximumFractionDigits: DIGITS[currency] });
+    amountInputFormats.set(currency, format);
+  }
+  return format.format(asNumeric(amount));
+}
+
 const quantityFormat = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 10 });
 export function formatQuantity(quantity: string): string {
   return quantityFormat.format(asNumeric(quantity));
@@ -68,12 +79,8 @@ export function formatDate(date: string): string {
   return `${d}-${m}-${y}`;
 }
 
-/**
- * Timestamp técnico (ISO 8601) → "DD-MM-AAAA HH:mm" en la hora local del navegador.
- * Medianoche UTC exacta es un cierre diario sin hora: se muestra sólo la fecha (convertirla correría el día en Chile).
- */
+/** Timestamp técnico (ISO 8601) → "DD-MM-AAAA HH:mm" en la hora local (sólo para cotizaciones intradía). */
 export function formatDateTime(iso: string): string {
-  if (/T00:00:00(\.0+)?Z$/.test(iso)) return formatDate(iso.slice(0, 10));
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -103,6 +110,17 @@ export function fractionToPercent(fraction: string): string {
 export function normalizeDecimal(input: string): string | null {
   const value = input.trim().replace(',', '.');
   return /^-?\d{1,18}(\.\d{1,10})?$/.test(value) ? value : null;
+}
+
+/**
+ * Monto escrito por el usuario al estilo es-CL o con punto decimal: "1.200.000" → "1200000", "1.234,5" → "1234.5", "1500.75" → "1500.75".
+ * Puntos agrupando miles sólo si forman grupos de 3; si hay coma, la coma es la decimal.
+ */
+export function parseAmountInput(input: string): string | null {
+  let value = input.trim();
+  if (value.includes(',')) value = value.replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(value)) value = value.replace(/\./g, '');
+  return normalizeDecimal(value);
 }
 
 function shiftDecimal(input: string, places: number): string | null {

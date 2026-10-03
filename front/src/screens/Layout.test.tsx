@@ -31,6 +31,8 @@ describe('Layout', () => {
       ['Resumen', '/'],
       ['Posiciones', '/posiciones'],
       ['Dividendos', '/dividendos'],
+      ['Análisis', '/analisis'],
+      ['Proyección', '/proyeccion'],
       ['Operaciones', '/operaciones'],
       ['Caja', '/caja'],
       ['Configuración', '/configuracion'],

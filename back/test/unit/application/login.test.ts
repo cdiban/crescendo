@@ -37,6 +37,7 @@ describe('Login', () => {
       passwordHash: await hasher.hash('correcta-y-larga'),
       createdAt: NOW,
       reportingCurrency: 'USD',
+      monthlyIncomeGoal: null,
     });
   });
 

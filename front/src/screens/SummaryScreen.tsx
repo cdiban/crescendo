@@ -1,11 +1,15 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { Info } from 'lucide-react';
+import { CircleCheck, Info } from 'lucide-react';
 import type { Api, Currency, FxRate } from '../api/client.ts';
 import { DataTable } from '../components/DataTable.tsx';
+import { DividendGrowthTable, DividendsMonthlyChart } from '../components/charts/DividendsMonthlyChart.tsx';
+import { NetWorthChart } from '../components/charts/NetWorthChart.tsx';
 import { DefinitionList } from '../components/stats.tsx';
+import { monthsAgo } from '../lib/periods.ts';
+import { Link } from '../router.tsx';
 import { ErrorAlert, Loading, PageHeader, Signed } from '../components/ui.tsx';
-import { formatDate, formatDateTime, formatMoney, formatPercent, formatRate, isOne } from '../lib/format.ts';
-import { useAsync } from '../lib/useAsync.ts';
+import { formatDate, formatMoney, formatPercent, formatRate, isOne } from '../lib/format.ts';
+import { today, useAsync } from '../lib/useAsync.ts';
 import { useAutoRefresh } from '../lib/useAutoRefresh.ts';
 
 /** Resumen y Posiciones se refrescan cada minuto con la pestaña visible (los precios cambian cada ~5 min). */
@@ -19,6 +23,7 @@ type Props = { api: Api; reportingCurrency: Currency };
 export function SummaryScreen({ api, reportingCurrency }: Props) {
   const summary = useAsync(() => api.getPortfolioSummary({ reportingCurrency }), [api, reportingCurrency]);
   const fx = useAsync(() => api.getLatestFxRates(), [api]);
+  const monthly = useAsync(() => api.getDividendsMonthly({ reportingCurrency, from: monthsAgo(today(), 23) }), [api, reportingCurrency]);
   useAutoRefresh(summary.reload, REFRESH_MS);
   const s = summary.data;
   const money = (amount: string) => formatMoney(amount, s?.reportingCurrency ?? reportingCurrency);
@@ -31,7 +36,7 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
           s &&
           [
             `Datos al ${formatDate(s.asOf)}`,
-            s.pricesAsOf && `precios al ${formatDateTime(s.pricesAsOf)}`,
+            s.pricesDate && `precios al ${formatDate(s.pricesDate)}`,
             `tipos de cambio al ${formatDate(s.fxAsOf)}`,
             `en ${s.reportingCurrency}`,
           ]
@@ -118,6 +123,7 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
               ]}
             />
           </StatCard>
+          <IncomeGoalCard goal={s.incomeGoal} currency={s.reportingCurrency} />
           <StatCard title="Exposición por moneda" hint="Costo vigente a tipo de cambio actual + caja">
             <ul className="grid gap-3">
               {s.exposure.map((e) => (
@@ -150,6 +156,10 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
         !summary.error && <Loading lines={4} />
       )}
 
+      <NetWorthChart api={api} reportingCurrency={reportingCurrency} />
+      <DividendsMonthlyChart data={monthly.data} error={monthly.error} currency={reportingCurrency} />
+      <DividendGrowthTable data={monthly.data} currency={reportingCurrency} />
+
       {/* Los tipos de cambio vigentes no dependen del resumen: se muestran aunque éste falle. */}
       <section aria-labelledby="fx-title" className="grid gap-2">
         <h2 id="fx-title" className="font-heading text-base font-semibold">
@@ -158,6 +168,63 @@ export function SummaryScreen({ api, reportingCurrency }: Props) {
         <FxTable rates={fx.data?.items} error={fx.error} />
       </section>
     </>
+  );
+}
+
+type IncomeGoal = NonNullable<Awaited<ReturnType<Api['getPortfolioSummary']>>['incomeGoal']>;
+
+/** P2: cuánto de la meta mensual cubren los dividendos (últimos 12 meses y esperado). */
+function IncomeGoalCard({ goal, currency }: { goal: IncomeGoal | null; currency: Currency }) {
+  if (!goal)
+    return (
+      <StatCard title="Meta de ingreso">
+        <p className="text-sm text-muted-foreground">Define cuánto quieres cubrir al mes con dividendos y verás qué parte cubren hoy.</p>
+        <Link to="/configuracion" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+          Definir meta
+        </Link>
+      </StatCard>
+    );
+  const items = [
+    { label: 'Últimos 12 meses', value: formatPercent(goal.coverageLast12Months) },
+    { label: 'Esperado', title: 'Con el ingreso anual esperado (neto)', value: formatPercent(goal.coverageExpected) },
+  ];
+  return (
+    <StatCard title="Meta de ingreso" hint="Dividendos netos por mes frente a tu gasto mensual objetivo">
+      <Stat>{formatMoney(goal.monthlyGoalReporting, currency)} al mes</Stat>
+      {goal.goal.currency !== currency && (
+        <p className="text-xs text-muted-foreground">Meta definida: {formatMoney(goal.goal.amount, goal.goal.currency)} (al tipo de cambio actual)</p>
+      )}
+      <DefinitionList items={items} />
+      <div className="grid gap-2">
+        <CoverageBar label="Cobertura últimos 12 meses" value={goal.coverageLast12Months} />
+        <CoverageBar label="Cobertura esperada" value={goal.coverageExpected} />
+      </div>
+    </StatCard>
+  );
+}
+
+/** Barra de cobertura: se corta al 100 % (CSS min) y marca el excedente cuando la meta ya está cubierta. */
+function CoverageBar({ label, value }: { label: string; value: string }) {
+  const over = Number(value) >= 1;
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        role="meter"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={Math.max(1, Number(value))}
+        aria-valuenow={Number(value)}
+        aria-valuetext={formatPercent(value)}
+        className="h-2 flex-1 overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          data-slot="coverage-bar"
+          className={cn('h-full w-[calc(min(var(--w),1)*100%)] rounded-full', over ? 'bg-positive' : 'bg-primary')}
+          style={{ '--w': value } as CSSProperties}
+        />
+      </div>
+      {over && <CircleCheck className="size-4 shrink-0 text-positive" aria-label="Meta cubierta" />}
+    </div>
   );
 }
 

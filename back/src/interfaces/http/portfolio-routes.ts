@@ -1,4 +1,5 @@
 import { MANUAL_MOVEMENT_TYPES, CASH_MOVEMENT_TYPES } from '../../domain/cash-movement.ts';
+import type { Currency, Money } from '../../domain/currency.ts';
 import { Decimal } from '../../domain/decimal.ts';
 import { DIVIDEND_KINDS, DIVIDEND_STATUSES } from '../../domain/dividend.ts';
 import { FX_CURRENCIES } from '../../domain/fx.ts';
@@ -24,6 +25,11 @@ import {
   presentMarket,
   presentPage,
   presentPortfolioSummary,
+  presentPreferences,
+  presentDividendsMonthly,
+  presentCalendar,
+  presentAllocation,
+  presentSnowball,
   presentPositions,
   presentSummary,
   presentTrade,
@@ -131,12 +137,27 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
   const { catalog, accounts, trades, dividends, cash, portfolio, preferences, fxRates, prices } = useCases;
 
   // ── Preferencias y tipos de cambio (v0.3) ──
-  router.add('GET', `${API}/me/preferences`, authed(async (_req, user) => ok(await preferences.get(user.id))));
+  router.add('GET', `${API}/me/preferences`, authed(async (_req, user) => ok(presentPreferences(await preferences.get(user.id)))));
   router.add('PATCH', `${API}/me/preferences`, authed(async (req, user) => {
-    const r = Reader.body(req.body, ['reportingCurrency'], { minProperties: 1 });
-    const changes = { reportingCurrency: r.currency('reportingCurrency', { optional: true }) };
+    const r = Reader.body(req.body, ['reportingCurrency', 'monthlyIncomeGoal'], { minProperties: 1 });
+    const changes: { reportingCurrency?: Currency | undefined; monthlyIncomeGoal?: Money | null | undefined } = {
+      reportingCurrency: r.currency('reportingCurrency', { optional: true }),
+    };
+    const goal = (req.body as Record<string, unknown>).monthlyIncomeGoal;
+    if (goal === null) changes.monthlyIncomeGoal = null;
+    else if (goal !== undefined) {
+      try {
+        const g = Reader.body(goal, ['amount', 'currency']);
+        const money = { amount: g.decimal('amount'), currency: g.currency('currency') };
+        if (money.amount && !money.amount.isPositive()) g.errors.push({ field: 'amount', message: 'Debe ser mayor que 0' });
+        r.errors.push(...g.errors.map((e) => ({ field: `monthlyIncomeGoal.${e.field}`, message: e.message })));
+        if (g.errors.length === 0) changes.monthlyIncomeGoal = { amount: money.amount!, currency: money.currency! };
+      } catch {
+        r.errors.push({ field: 'monthlyIncomeGoal', message: 'Debe ser { amount, currency } o null' });
+      }
+    }
     r.finish();
-    return ok(await preferences.update(user.id, changes));
+    return ok(presentPreferences(await preferences.update(user.id, changes)));
   }));
   router.add('GET', `${API}/fx-rates`, authed(async (req) => {
     const r = Reader.query(req.query);
@@ -286,6 +307,23 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
     r.finish();
     return ok(presentPage(await dividends.list(user.id, filter), presentDividend));
   }));
+  router.add('GET', `${API}/dividends/monthly`, authed(async (req, user) => {
+    const r = Reader.query(req.query);
+    const month = /^\d{4}-(0[1-9]|1[0-2])$/;
+    const query = {
+      reportingCurrency: r.currency('reportingCurrency', { optional: true }),
+      from: r.string('from', { optional: true, pattern: month }),
+      to: r.string('to', { optional: true, pattern: month }),
+    };
+    r.finish();
+    return ok(presentDividendsMonthly(await portfolio.dividendsMonthly(user.id, query)));
+  }));
+  router.add('GET', `${API}/dividends/calendar`, authed(async (req, user) => {
+    const r = Reader.query(req.query);
+    const query = { reportingCurrency: r.currency('reportingCurrency', { optional: true }) };
+    r.finish();
+    return ok(presentCalendar(await portfolio.dividendCalendar(user.id, query)));
+  }));
   router.add('GET', `${API}/dividends/summary`, authed(async (req, user) => {
     const r = Reader.query(req.query);
     const query = {
@@ -410,6 +448,38 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
     r.finish();
     const result = await portfolio.history(user.id, query);
     return ok({ reportingCurrency: result.reportingCurrency, items: result.items.map(presentHistoryPoint) });
+  }));
+
+  router.add('GET', `${API}/portfolio/allocation`, authed(async (req, user) => {
+    const r = Reader.query(req.query);
+    const query = {
+      by: r.enumOf('by', ['instrument', 'sector', 'market', 'currency', 'account', 'type'] as const),
+      reportingCurrency: r.currency('reportingCurrency', { optional: true }),
+      limit: r.integer('limit', { optional: true, min: 1, max: 100 }),
+    };
+    r.finish();
+    return ok(presentAllocation(await portfolio.allocation(user.id, { ...query, by: query.by! })));
+  }));
+
+  router.add('GET', `${API}/projections/snowball`, authed(async (req, user) => {
+    const r = Reader.query(req.query);
+    const growth = (field: string) => {
+      const value = r.decimal(field, { optional: true });
+      if (value && (value.lt(Decimal.parse('-0.5')) || value.gt(Decimal.parse('0.5')))) r.errors.push({ field, message: 'Debe estar entre -0.5 y 0.5' });
+      return value;
+    };
+    const query = {
+      reportingCurrency: r.currency('reportingCurrency', { optional: true }),
+      years: r.integer('years', { optional: true, min: 1, max: 50 }),
+      monthlyContribution: r.decimal('monthlyContribution', { optional: true }),
+      contributionGrowth: growth('contributionGrowth'),
+      reinvestDividends: r.boolean('reinvestDividends', { optional: true }),
+      dividendGrowth: growth('dividendGrowth'),
+      priceGrowth: growth('priceGrowth'),
+    };
+    if (query.monthlyContribution?.isNegative()) r.errors.push({ field: 'monthlyContribution', message: 'Debe ser >= 0' });
+    r.finish();
+    return ok(presentSnowball(await portfolio.snowball(user.id, query)));
   }));
 
   router.add('GET', `${API}/portfolio/summary`, authed(async (req, user) => {

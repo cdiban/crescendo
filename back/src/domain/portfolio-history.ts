@@ -9,6 +9,10 @@ export type HistoryPoint = {
   marketValue: Decimal;
   /** Parte de marketValue valorizada al costo por falta de precio (0 si todo tiene precio). */
   unpricedAtCost: Decimal;
+  /** marketValue + cash. */
+  netWorth: Decimal;
+  /** netWorth − contributedCapital. */
+  totalGain: Decimal;
   /** Costo vigente a TC históricos. */
   costBasis: Decimal;
   /** Caja a TC del día. */
@@ -84,13 +88,16 @@ export function computePortfolioHistory(input: HistoryInput): HistoryPoint[] {
     let cash = Decimal.ZERO;
     for (const [currency, balance] of balances) cash = cash.add(roundAmount(input.toReporting(balance, currency, date)));
 
+    const contributedCapital = roundAmount(contributed);
     points.push({
       date,
       marketValue,
+      netWorth: marketValue.add(cash),
+      totalGain: marketValue.add(cash).sub(contributedCapital),
       unpricedAtCost,
       costBasis,
       cash,
-      contributedCapital: roundAmount(contributed),
+      contributedCapital,
       dividendsNetCumulative: roundAmount(dividendsCum),
       realizedGainCumulative: realized,
     });

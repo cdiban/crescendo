@@ -231,12 +231,18 @@ function GroupTotals({ totals }: { totals: PositionList['totalsByCurrency'][numb
   );
 }
 
+/** Fecha de negocio del precio; con hora sólo si es una cotización intradía. */
+function priceTitle(p: Position, source: string): string {
+  if (p.priceIsIntraday && p.priceAsOf) return `${source} al ${formatDateTime(p.priceAsOf)}`;
+  return p.priceDate ? `${source} al ${formatDate(p.priceDate)}` : source;
+}
+
 /** Precio actual con su fecha y fuente (title); "Sin precio" si el proveedor no lo cubre. */
 function PriceCell({ position: p }: { position: Position }) {
   if (p.marketPrice == null) return <TableCell className={`${NUM} text-muted-foreground`}>Sin precio</TableCell>;
   const source = p.priceSource === 'MANUAL' ? 'Precio manual' : 'Precio';
   return (
-    <TableCell className={NUM} title={p.priceAsOf ? `${source} al ${formatDateTime(p.priceAsOf)}` : source}>
+    <TableCell className={NUM} title={priceTitle(p, source)}>
       {p.priceSource === 'MANUAL' && <span className="mr-1 rounded bg-info px-1 text-[10px] text-info-foreground uppercase">manual</span>}
       <span>{formatUnitPrice(p.marketPrice, p.currency)}</span>
     </TableCell>

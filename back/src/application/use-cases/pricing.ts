@@ -2,7 +2,7 @@ import type { Decimal } from '../../domain/decimal.ts';
 import type { PriceSource } from '../../domain/market-data.ts';
 import type { StoredClose, StoredQuote } from '../ports/repositories.ts';
 
-export type CurrentPrice = { price: Decimal; previousClose: Decimal | null; asOf: Date; date: string; source: PriceSource };
+export type CurrentPrice = { price: Decimal; previousClose: Decimal | null; asOf: Date; date: string; source: PriceSource; fromQuote: boolean };
 
 /**
  * Precio vigente a una fecha: el más reciente entre la cotización (si su fecha ≤ la pedida) y el
@@ -11,8 +11,8 @@ export type CurrentPrice = { price: Decimal; previousClose: Decimal | null; asOf
  */
 export function resolvePrice(quote: StoredQuote | undefined, close: StoredClose | undefined, date: string): CurrentPrice | null {
   const q = quote && quote.date <= date ? quote : undefined;
-  if (q && (!close || q.date >= close.date)) return { price: q.price, previousClose: q.previousClose, asOf: q.asOf, date: q.date, source: q.source };
-  if (close) return { price: close.close, previousClose: null, asOf: new Date(`${close.date}T00:00:00.000Z`), date: close.date, source: close.source };
+  if (q && (!close || q.date >= close.date)) return { price: q.price, previousClose: q.previousClose, asOf: q.asOf, date: q.date, source: q.source, fromQuote: true };
+  if (close) return { price: close.close, previousClose: null, asOf: new Date(`${close.date}T00:00:00.000Z`), date: close.date, source: close.source, fromQuote: false };
   return null;
 }
 

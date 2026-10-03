@@ -1,5 +1,5 @@
 import { roundAmount, RATE_SCALE } from '../../domain/amounts.ts';
-import type { Currency } from '../../domain/currency.ts';
+import type { Currency, Money } from '../../domain/currency.ts';
 import { monthOf, oneYearBefore } from '../../domain/dates.ts';
 import { Decimal } from '../../domain/decimal.ts';
 import type { Dividend, DividendStatus } from '../../domain/dividend.ts';
@@ -7,7 +7,14 @@ import { FX_CURRENCIES, FxTable } from '../../domain/fx.ts';
 import type { Instrument, InstrumentType } from '../../domain/instrument.ts';
 import { computeHoldings, type Holding } from '../../domain/positions.ts';
 import { cashFxEffect, exposureWeights, WEIGHT_SCALE, type Exposure } from '../../domain/reporting.ts';
-import type { PriceSource } from '../../domain/market-data.ts';
+import { isIntradayPrice, type PriceSource } from '../../domain/market-data.ts';
+import { effectiveWithholdingRate } from '../../domain/instrument.ts';
+import { dividendsByMonth, type MonthPoint, type YearTotal } from '../../domain/dividend-stats.ts';
+import { buildCalendar, estimateNextDividend, type CalendarItem, type CalendarMonth } from '../../domain/dividend-calendar.ts';
+import { allocate, type AllocationItem, type AllocationRow } from '../../domain/allocation.ts';
+import { simulateSnowball, type SnowballYear } from '../../domain/snowball.ts';
+import { isUnassignedImportDeposit } from '../../domain/cash-movement.ts';
+import { quantityAt } from '../../domain/positions.ts';
 import { computePortfolioHistory, sampleDates, type HistoryPoint } from '../../domain/portfolio-history.ts';
 import { reportingMarketValue, valuePosition } from '../../domain/valuation.ts';
 import { ValidationError } from '../errors.ts';
@@ -38,6 +45,8 @@ export type ReportingAmounts = {
   marketValue: Decimal | null;
   priceEffect: Decimal | null;
   unrealizedGain: Decimal | null;
+  /** Interno (no se expone por fila): ingreso esperado neto de retención, a TC actual. */
+  expectedAnnualIncomeNet?: Decimal | null;
 };
 
 export type PositionView = {
@@ -63,6 +72,9 @@ export type PositionView = {
   reporting: ReportingAmounts;
   marketPrice: Decimal | null;
   priceAsOf: Date | null;
+  /** Fecha de negocio del precio (zona del mercado). */
+  priceDate: string | null;
+  priceIsIntraday: boolean;
   priceSource: PriceSource | null;
   marketValue: Decimal | null;
   unrealizedGain: Decimal | null;
@@ -107,7 +119,15 @@ export type PortfolioSummary = {
   cash: Decimal;
   fxEffect: { positions: Decimal; cash: Decimal; total: Decimal };
   realizedGain: Decimal;
-  dividends: { netYearToDate: Decimal; netLast12Months: Decimal; netTotal: Decimal; expectedAnnualGross: Decimal; currentYield: Decimal | null };
+  dividends: {
+    netYearToDate: Decimal;
+    netLast12Months: Decimal;
+    netTotal: Decimal;
+    expectedAnnualGross: Decimal;
+    currentYield: Decimal | null;
+    /** Σ cantidad × dividendo anual por acción × (1 − retención efectiva), a TC actual. */
+    expectedAnnualNet: Decimal;
+  };
   exposure: Exposure[];
   marketValue: Decimal;
   netWorth: Decimal;
@@ -116,7 +136,41 @@ export type PortfolioSummary = {
   totalGain: Decimal;
   pricedCoverage: Decimal;
   pricesAsOf: Date | null;
+  pricesDate: string | null;
+  incomeGoal: { goal: Money; monthlyGoalReporting: Decimal; coverageLast12Months: Decimal; coverageExpected: Decimal } | null;
 };
+
+export type DividendsMonthly = { reportingCurrency: Currency; months: MonthPoint[]; years: YearTotal[] };
+export type DividendCalendar = { reportingCurrency: Currency; months: CalendarMonth[]; totalNet: Decimal };
+export type AllocationDimension = 'instrument' | 'sector' | 'market' | 'currency' | 'account' | 'type';
+export type Allocation = { by: AllocationDimension; reportingCurrency: Currency; total: Decimal; items: AllocationItem[] };
+export type SnowballQuery = {
+  reportingCurrency?: Currency | undefined;
+  years?: number | undefined;
+  monthlyContribution?: Decimal | undefined;
+  contributionGrowth?: Decimal | undefined;
+  reinvestDividends?: boolean | undefined;
+  dividendGrowth?: Decimal | undefined;
+  priceGrowth?: Decimal | undefined;
+};
+export type SnowballProjection = {
+  reportingCurrency: Currency;
+  assumptions: {
+    years: number;
+    monthlyContribution: Decimal;
+    contributionGrowth: Decimal;
+    reinvestDividends: boolean;
+    dividendGrowth: Decimal;
+    priceGrowth: Decimal;
+    startYield: Decimal;
+  };
+  start: { netWorth: Decimal; annualDividendsNet: Decimal };
+  years: SnowballYear[];
+  goalReachedYear: number | null;
+};
+
+/** Defaults de la proyección (contrato v0.5). */
+export const SNOWBALL_DEFAULTS = { years: 20, contributionGrowth: '0', reinvestDividends: true, dividendGrowth: '0.05', priceGrowth: '0.04' } as const;
 
 export type HistoryQuery = {
   reportingCurrency?: Currency | undefined;
@@ -242,7 +296,8 @@ export class Portfolio {
       toReporting: (instrumentId, amount, date) => rep.atDate(amount, instruments.get(instrumentId)!.currency, date),
     }) as Row[];
     const ids = [...instruments.keys()];
-    const [quotes, closes] = await Promise.all([r.prices.quotes(ids), r.prices.latestCloses(ids, asOf)]);
+    const [quotes, closes, markets] = await Promise.all([r.prices.quotes(ids), r.prices.latestCloses(ids, asOf), r.markets.list()]);
+    const marketByCode = new Map(markets.map((m) => [m.code, m]));
     const prices = new Map(ids.map((id) => [id, resolvePrice(quotes.get(id), closes.get(id), asOf)]));
     const holdings = query.groupBy === 'instrument' ? mergeByInstrument(perAccount) : perAccount;
     const windowStart = oneYearBefore(asOf);
@@ -250,7 +305,8 @@ export class Portfolio {
     const views = holdings.map((h) => {
       const instrument = instruments.get(h.instrumentId)!;
       const own = dividends.filter((d) => d.instrumentId === h.instrumentId && (h.accountId === null || d.accountId === h.accountId));
-      return this.#position(h, instrument, own, windowStart, rep, prices.get(h.instrumentId) ?? null);
+      const rate = effectiveWithholdingRate(instrument, marketByCode.get(instrument.marketCode)!);
+      return this.#position(h, instrument, own, windowStart, rep, prices.get(h.instrumentId) ?? null, rate);
     });
     return { views, instruments };
   }
@@ -298,7 +354,15 @@ export class Portfolio {
     });
   }
 
-  #position(h: Row, instrument: Instrument, dividends: Dividend[], windowStart: string, rep: Reporter, price: CurrentPrice | null): PositionView {
+  #position(
+    h: Row,
+    instrument: Instrument,
+    dividends: Dividend[],
+    windowStart: string,
+    rep: Reporter,
+    price: CurrentPrice | null,
+    withholdingRate: Decimal,
+  ): PositionView {
     const adps = instrument.annualDividendPerShare;
     const months = new Set(dividends.filter((d) => d.paymentDate > windowStart).map((d) => monthOf(d.paymentDate)));
     const expected = adps === null ? null : roundAmount(h.quantity.mul(adps));
@@ -323,6 +387,8 @@ export class Portfolio {
     return {
       marketPrice: price?.price ?? null,
       priceAsOf: price?.asOf ?? null,
+      priceDate: price?.date ?? null,
+      priceIsIntraday: price ? isIntradayPrice({ ...price, marketCode: instrument.marketCode }, this.#clock.now()) : false,
       priceSource: price?.source ?? null,
       ...valuation,
       accountId: h.accountId,
@@ -353,6 +419,8 @@ export class Portfolio {
         realizedGain: h.reporting.realizedGain,
         dividendsNet: roundAmount(Decimal.sum(dividends.map((d) => rep.atDate(d.netAmount, d.currency, d.paymentDate)))),
         expectedAnnualIncomeGross: expected === null ? null : roundAmount(rep.atCurrent(expected, instrument.currency)),
+        expectedAnnualIncomeNet:
+          expected === null ? null : roundAmount(rep.atCurrent(roundAmount(expected.mul(Decimal.ONE.sub(withholdingRate))), instrument.currency)),
         ...market,
       },
     };
@@ -394,7 +462,10 @@ export class Portfolio {
       const priceEffect = Decimal.sum(priced.map((p) => p.reporting.priceEffect!));
       const unrealizedGain = Decimal.sum(priced.map((p) => p.reporting.unrealizedGain!));
       const netWorth = marketValue.add(cashTotal);
-      const pricesAsOf = priced.map((p) => p.priceAsOf!).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+      const oldest = [...priced].sort((a, b) => a.priceAsOf!.getTime() - b.priceAsOf!.getTime())[0];
+      const pricesAsOf = oldest?.priceAsOf ?? null;
+      const expectedAnnualNet = Decimal.sum(open.map((p) => p.reporting.expectedAnnualIncomeNet ?? Decimal.ZERO));
+      const user = (await r.users.findById(userId))!;
       const expectedAnnualGross = positions.expectedAnnualIncomeGross ?? Decimal.ZERO;
 
       return {
@@ -408,6 +479,8 @@ export class Portfolio {
         totalGain: netWorth.sub(contributed),
         pricedCoverage: coverage(Decimal.sum(priced.map((p) => p.reporting.costBasis)), positions.costBasis),
         pricesAsOf,
+        pricesDate: oldest?.priceDate ?? null,
+        incomeGoal: this.#incomeGoal(user.monthlyIncomeGoal, rep, netAt(dividends.filter((d) => d.paymentDate > windowStart)), expectedAnnualNet),
         contributedCapital: contributed,
         costBasis: positions.costBasis,
         costBasisAtCurrentRate: positions.costBasisAtCurrentRate,
@@ -420,9 +493,172 @@ export class Portfolio {
           netTotal: netAt(dividends),
           expectedAnnualGross,
           currentYield: marketValue.isZero() ? null : expectedAnnualGross.div(marketValue, RATE_SCALE),
+          expectedAnnualNet,
         },
         exposure,
       };
+    });
+  }
+
+  /**
+   * Calendario de 12 meses: anunciados registrados + estimados (cada PAID de los últimos 12 meses de una
+   * posición abierta, proyectado al mismo día del año siguiente con la cantidad actual).
+   */
+  dividendCalendar(userId: string, query: { reportingCurrency?: Currency | undefined }): Promise<DividendCalendar> {
+    const today = this.#clock.today();
+    return this.#uow.read(async (r) => {
+      const rep = await this.#reporter(r, userId, query.reportingCurrency, today);
+      const [trades, announced, paid, markets] = await Promise.all([
+        r.trades.listByUser(userId),
+        r.dividends.listByUser(userId, { status: 'ANNOUNCED' }),
+        r.dividends.listByUser(userId, { status: 'PAID', from: oneYearBefore(today), to: today }),
+        r.markets.list(),
+      ]);
+      const ids = [...new Set([...trades, ...announced].map((x) => x.instrumentId))];
+      const instruments = new Map((await r.instruments.findByIds(ids)).map((i) => [i.id, i]));
+      const marketByCode = new Map(markets.map((m) => [m.code, m]));
+      const holdings = new Map(computeHoldings(trades, today).map((h) => [`${h.accountId}|${h.instrumentId}`, h.quantity]));
+      const item = (instrumentId: string, status: CalendarItem['status'], date: string, net: Decimal): CalendarItem => {
+        const instrument = instruments.get(instrumentId)!;
+        return {
+          instrumentId,
+          symbol: instrument.symbol,
+          status,
+          date,
+          currency: instrument.currency,
+          netAmount: net,
+          netAmountReporting: roundAmount(rep.atDate(net, instrument.currency, date)),
+        };
+      };
+
+      const estimated: CalendarItem[] = [];
+      for (const d of paid) {
+        if (d.paymentDate <= oneYearBefore(today)) continue;
+        const quantityNow = holdings.get(`${d.accountId}|${d.instrumentId}`);
+        if (!quantityNow?.isPositive()) continue;
+        const instrument = instruments.get(d.instrumentId)!;
+        const accountTrades = trades.filter((t) => t.accountId === d.accountId && t.instrumentId === d.instrumentId);
+        const estimate = estimateNextDividend(
+          { paymentDate: d.paymentDate, perShare: d.perShare, grossAmount: d.grossAmount, quantityThen: d.quantity ?? quantityAt(accountTrades, d.exDate ?? d.paymentDate) },
+          { quantityNow, withholdingRate: effectiveWithholdingRate(instrument, marketByCode.get(instrument.marketCode)!) },
+        );
+        if (estimate) estimated.push(item(d.instrumentId, 'ESTIMATED', estimate.date, estimate.netAmount));
+      }
+      const calendar = buildCalendar({
+        today,
+        announced: announced.map((d) => item(d.instrumentId, 'ANNOUNCED', d.paymentDate, d.netAmount)),
+        estimated,
+      });
+      return { reportingCurrency: rep.currency, ...calendar };
+    });
+  }
+
+  /** Distribución del valor de las posiciones abiertas (sin precio → al costo, marcado) y del ingreso esperado. */
+  allocation(userId: string, query: { by: AllocationDimension; reportingCurrency?: Currency | undefined; limit?: number | undefined }): Promise<Allocation> {
+    const asOf = this.#clock.today();
+    return this.#uow.read(async (r) => {
+      const rep = await this.#reporter(r, userId, query.reportingCurrency, asOf);
+      const { views, instruments } = await this.#rows(r, userId, rep, { groupBy: 'account' });
+      const [accounts, markets] = await Promise.all([r.accounts.listByUser(userId), r.markets.list()]);
+      const accountName = new Map(accounts.map((a) => [a.id, a.name]));
+      const marketName = new Map(markets.map((m) => [m.code, m.name]));
+      const group = (p: PositionView): { key: string; label: string } => {
+        const instrument = instruments.get(p.instrumentId)!;
+        switch (query.by) {
+          case 'instrument':
+            return { key: p.instrumentId, label: p.symbol };
+          case 'sector':
+            return { key: instrument.sector ?? '__none', label: instrument.sector ?? 'Sin sector' };
+          case 'market':
+            return { key: p.marketCode, label: marketName.get(p.marketCode) ?? p.marketCode };
+          case 'currency':
+            return { key: p.currency, label: p.currency };
+          case 'account':
+            return { key: p.accountId!, label: accountName.get(p.accountId!) ?? p.accountId! };
+          case 'type':
+            return { key: p.type, label: p.type };
+        }
+      };
+      const rows: AllocationRow[] = views
+        .filter((p) => !p.quantity.isZero())
+        .map((p) => {
+          const atCost = p.reporting.marketValue === null;
+          const value = p.reporting.marketValue ?? p.reporting.costBasisAtCurrentRate;
+          return { ...group(p), value, valuedAtCost: atCost ? value : Decimal.ZERO, income: p.reporting.expectedAnnualIncomeGross ?? Decimal.ZERO };
+        });
+      return { by: query.by, reportingCurrency: rep.currency, ...allocate(rows, query.limit) };
+    });
+  }
+
+  /** P1: proyección "bola de nieve" desde el patrimonio y el yield neto actuales. */
+  async snowball(userId: string, query: SnowballQuery): Promise<SnowballProjection> {
+    const today = this.#clock.today();
+    const summary = await this.summary(userId, { reportingCurrency: query.reportingCurrency, asOf: today });
+    const defaultContribution = await this.#uow.read(async (r) => {
+      const rep = await this.#reporter(r, userId, summary.reportingCurrency, today);
+      const since = oneYearBefore(today);
+      const movements = (await r.cashMovements.listByUser(userId, { to: today })).filter(
+        (m) => m.date > since && (m.type === 'DEPOSIT' || m.type === 'WITHDRAWAL') && !isUnassignedImportDeposit(m),
+      );
+      const average = Decimal.sum(movements.map((m) => rep.atDate(m.amount, m.currency, m.date))).div(Decimal.fromInt(12), 4);
+      return average.isNegative() ? Decimal.ZERO : average;
+    });
+    const assumptions = {
+      years: query.years ?? SNOWBALL_DEFAULTS.years,
+      monthlyContribution: query.monthlyContribution ?? defaultContribution,
+      contributionGrowth: query.contributionGrowth ?? Decimal.parse(SNOWBALL_DEFAULTS.contributionGrowth),
+      reinvestDividends: query.reinvestDividends ?? SNOWBALL_DEFAULTS.reinvestDividends,
+      dividendGrowth: query.dividendGrowth ?? Decimal.parse(SNOWBALL_DEFAULTS.dividendGrowth),
+      priceGrowth: query.priceGrowth ?? Decimal.parse(SNOWBALL_DEFAULTS.priceGrowth),
+      startYield: summary.marketValue.isZero() ? Decimal.ZERO : summary.dividends.expectedAnnualNet.div(summary.marketValue, RATE_SCALE),
+    };
+    const result = simulateSnowball({
+      startNetWorth: summary.netWorth,
+      ...assumptions,
+      startYear: Number(today.slice(0, 4)),
+      monthlyGoal: summary.incomeGoal?.monthlyGoalReporting ?? null,
+    });
+    return {
+      reportingCurrency: summary.reportingCurrency,
+      assumptions,
+      start: { netWorth: summary.netWorth, annualDividendsNet: summary.dividends.expectedAnnualNet },
+      ...result,
+    };
+  }
+
+  /** P2: meta convertida a TC actual y cobertura (12 meses cobrados y esperada). */
+  #incomeGoal(goal: Money | null, rep: Reporter, netLast12Months: Decimal, expectedAnnualNet: Decimal): PortfolioSummary['incomeGoal'] {
+    if (!goal) return null;
+    const monthly = roundAmount(rep.atCurrent(goal.amount, goal.currency));
+    const yearly = monthly.mul(Decimal.fromInt(12));
+    return {
+      goal,
+      monthlyGoalReporting: monthly,
+      coverageLast12Months: netLast12Months.div(yearly, RATE_SCALE),
+      coverageExpected: expectedAnnualNet.div(yearly, RATE_SCALE),
+    };
+  }
+
+  /** Dividendos por mes (incluye meses en 0) y por año con crecimiento, en moneda de reporte. */
+  dividendsMonthly(userId: string, query: { reportingCurrency?: Currency | undefined; from?: string | undefined; to?: string | undefined }): Promise<DividendsMonthly> {
+    const today = this.#clock.today();
+    return this.#uow.read(async (r) => {
+      const dividends = await r.dividends.listByUser(userId, {});
+      const rep = await this.#reporter(r, userId, query.reportingCurrency, today);
+      const current = today.slice(0, 7);
+      const plus3 = new Date(Date.UTC(Number(current.slice(0, 4)), Number(current.slice(5)) - 1 + 3, 1)).toISOString().slice(0, 7);
+      const from = query.from ?? dividends[0]?.paymentDate.slice(0, 7) ?? current;
+      const to = query.to ?? plus3;
+      if (from > to) throw new ValidationError([{ field: 'from', message: 'Debe ser ≤ to' }]);
+      // Cada dividendo a TC de su fecha de pago (los futuros, al último disponible).
+      const reported = dividends.map((d) => ({
+        paymentDate: d.paymentDate,
+        status: d.status,
+        net: rep.atDate(d.netAmount, d.currency, d.paymentDate),
+        gross: rep.atDate(d.grossAmount, d.currency, d.paymentDate),
+        withholding: rep.atDate(d.withholdingAmount, d.currency, d.paymentDate),
+      }));
+      return { reportingCurrency: rep.currency, ...dividendsByMonth({ dividends: reported, from, to, today }) };
     });
   }
 

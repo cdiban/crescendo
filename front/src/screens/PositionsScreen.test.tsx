@@ -52,17 +52,20 @@ describe('PositionsScreen', () => {
     expect(within(within(clp).getByRole('row', { name: /PEHUENCHE/ })).getByText('+0,41%').dataset.tone).toBe('positive');
   });
 
-  it('muestra la fuente manual y la fecha del precio', async () => {
+  it('muestra la fecha de negocio del precio: con hora sólo si es intradía; marca los manuales', async () => {
     const manual = { ...positionsByInstrument[0]!, priceSource: 'MANUAL' as const };
     mockFetch([
       { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
-      { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList([manual]) },
+      { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList([manual, positionsByInstrument[1]!]) },
     ]);
     render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
     const clp = await screen.findByRole('rowgroup', { name: 'Posiciones CLP' });
-    const price = within(clp).getByText('$2.701');
-    expect(price.closest('td')!.getAttribute('title')).toMatch(/^Precio manual al 03-10-2026 \d\d:\d\d$/);
+    // Cierre (no intradía): sólo la fecha de negocio, sin hora.
+    expect(within(clp).getByText('$2.701').closest('td')!.getAttribute('title')).toBe('Precio manual al 02-10-2026');
     expect(within(clp).getByText('manual')).toBeTruthy();
+    // Intradía: fecha y hora.
+    const usd = screen.getByRole('rowgroup', { name: 'Posiciones USD' });
+    expect(within(usd).getByText('US$68,20').closest('td')!.getAttribute('title')).toMatch(/^Precio al 03-10-2026 \d\d:\d\d$/);
   });
 
   it('se actualiza cada 60 s sin volver al estado de carga', async () => {

@@ -1,5 +1,6 @@
 import type { EntityManager, Repository } from 'typeorm';
-import type { Currency } from '../../domain/currency.ts';
+import type { Currency, Money } from '../../domain/currency.ts';
+import { Decimal } from '../../domain/decimal.ts';
 import { Email } from '../../domain/email.ts';
 import type { NewUser, User } from '../../domain/user.ts';
 import { EmailAlreadyRegisteredError } from '../../application/errors.ts';
@@ -15,6 +16,10 @@ function toDomain(record: UserRecord): User {
     createdAt: record.createdAt,
     // El CHECK de la BD garantiza CLP | USD | EUR.
     reportingCurrency: record.reportingCurrency as Currency,
+    monthlyIncomeGoal:
+      record.monthlyIncomeGoalAmount === null
+        ? null
+        : { amount: Decimal.parse(record.monthlyIncomeGoalAmount), currency: record.monthlyIncomeGoalCurrency!.trim() as Currency },
   };
 }
 
@@ -43,6 +48,8 @@ export class TypeOrmUserRepository implements UserRepository {
           passwordHash: user.passwordHash,
           createdAt: user.createdAt,
           reportingCurrency: user.reportingCurrency,
+          monthlyIncomeGoalAmount: user.monthlyIncomeGoal?.amount.toString() ?? null,
+          monthlyIncomeGoalCurrency: user.monthlyIncomeGoal?.currency ?? null,
         }),
       );
       return toDomain(record);
@@ -52,7 +59,13 @@ export class TypeOrmUserRepository implements UserRepository {
     }
   }
 
-  async updateReportingCurrency(id: string, currency: Currency): Promise<void> {
-    await this.#repo.update({ id }, { reportingCurrency: currency });
+  async updatePreferences(id: string, changes: { reportingCurrency?: Currency | undefined; monthlyIncomeGoal?: Money | null | undefined }): Promise<void> {
+    const fields: Partial<UserRecord> = {};
+    if (changes.reportingCurrency) fields.reportingCurrency = changes.reportingCurrency;
+    if (changes.monthlyIncomeGoal !== undefined) {
+      fields.monthlyIncomeGoalAmount = changes.monthlyIncomeGoal?.amount.toString() ?? null;
+      fields.monthlyIncomeGoalCurrency = changes.monthlyIncomeGoal?.currency ?? null;
+    }
+    if (Object.keys(fields).length > 0) await this.#repo.update({ id }, fields);
   }
 }

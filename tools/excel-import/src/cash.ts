@@ -1,3 +1,4 @@
+import { UNASSIGNED_IMPORT_DEPOSIT_DESCRIPTION } from '../../../back/src/domain/cash-movement.ts';
 import { Decimal } from '../../../back/src/domain/decimal.ts';
 import type { BundleCashMovement } from './bundle.ts';
 
@@ -37,7 +38,7 @@ export function inferCashMovements(input: { flows: CashFlow[]; targets: CashTarg
     const target = input.targets.find((t) => t.accountKey === accountKey && t.currency === currency)?.amount ?? Decimal.ZERO;
     const residual = target.sub(balance);
     if (residual.isPositive()) {
-      result.push({ accountKey, date: input.cutoffDate, type: 'DEPOSIT', amount: residual.toString(), currency, description: 'Aporte no asignado (importación)' });
+      result.push({ accountKey, date: input.cutoffDate, type: 'DEPOSIT', amount: residual.toString(), currency, description: UNASSIGNED_IMPORT_DEPOSIT_DESCRIPTION });
     } else if (residual.isNegative()) {
       result.push({ accountKey, date: input.cutoffDate, type: 'ADJUSTMENT', amount: residual.toString(), currency, description: 'Ajuste al saldo del Excel (importación)' });
     }

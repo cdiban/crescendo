@@ -102,6 +102,11 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -143,6 +148,12 @@
   --warning-foreground: oklch(0.42 0.1 70);
   --info: oklch(0.93 0.04 255);
   --info-foreground: oklch(0.42 0.13 258);
+  /* Series de gráficos: azul (patrimonio/principal), verde azulado (aportes), ámbar (anunciados/estimados), violeta, gris. */
+  --chart-1: oklch(0.55 0.17 258);
+  --chart-2: oklch(0.6 0.12 185);
+  --chart-3: oklch(0.72 0.15 70);
+  --chart-4: oklch(0.55 0.18 300);
+  --chart-5: oklch(0.6 0.02 255);
 }
 
 .dark {
@@ -178,6 +189,11 @@
   --warning-foreground: oklch(0.88 0.11 85);
   --info: oklch(0.3 0.06 258);
   --info-foreground: oklch(0.85 0.07 258);
+  --chart-1: oklch(0.7 0.14 258);
+  --chart-2: oklch(0.74 0.11 185);
+  --chart-3: oklch(0.8 0.14 75);
+  --chart-4: oklch(0.72 0.15 300);
+  --chart-5: oklch(0.7 0.02 255);
 }
 
 @layer base {

@@ -154,7 +154,9 @@ describe('resumen del portafolio', () => {
       totalGain: '-747910',
       pricedCoverage: '0',
       pricesAsOf: null,
-      dividends: { netYearToDate: '13075', netLast12Months: '13075', netTotal: '13075', expectedAnnualGross: '44592.8', currentYield: null },
+      pricesDate: null,
+      incomeGoal: null,
+      dividends: { netYearToDate: '13075', netLast12Months: '13075', netTotal: '13075', expectedAnnualGross: '44592.8', currentYield: null, expectedAnnualNet: '41893.88' },
       exposure: [
         { currency: 'USD', amount: '2061430', weight: '0.909549' },
         { currency: 'CLP', amount: '205000', weight: '0.090451' },
@@ -173,7 +175,7 @@ describe('resumen del portafolio', () => {
 
   test('dividendos por período: año en curso, 12 meses y total', async () => {
     const s = await expectStatus(await ana.get('/portfolio/summary?reportingCurrency=CLP&asOf=2026-04-15'), 200);
-    assert.deepEqual(s.dividends, { netYearToDate: '0', netLast12Months: '5000', netTotal: '13075', expectedAnnualGross: '44592.8', currentYield: null });
+    assert.deepEqual(s.dividends, { netYearToDate: '0', netLast12Months: '5000', netTotal: '13075', expectedAnnualGross: '44592.8', currentYield: null, expectedAnnualNet: '41893.88' });
   });
 });
 

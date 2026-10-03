@@ -76,3 +76,14 @@ export function marketLocalDate(marketCode: string, instant: Date): string {
 export function localDate(timeZone: string, instant: Date): string {
   return parts(timeZone, instant).date;
 }
+
+/**
+ * ¿El precio es una cotización intradía (mostrar hora)? Sólo una cotización del proveedor de la
+ * fecha local de hoy con el mercado abierto; un cierre, un precio manual o uno de otro día no.
+ */
+export function isIntradayPrice(
+  price: { marketCode: string; date: string; source: PriceSource; fromQuote: boolean },
+  now: Date,
+): boolean {
+  return price.fromQuote && price.source === 'PROVIDER' && isMarketOpen(price.marketCode, now) && marketLocalDate(price.marketCode, now) === price.date;
+}

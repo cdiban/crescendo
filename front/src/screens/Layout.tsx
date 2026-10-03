@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowLeftRight, Briefcase, HandCoins, LayoutDashboard, LogOut, Menu, Settings, TrendingUp, Wallet } from 'lucide-react';
+import { ArrowLeftRight, Briefcase, ChartPie, HandCoins, LayoutDashboard, LogOut, Menu, Settings, Sprout, TrendingUp, Wallet } from 'lucide-react';
 import type { Api, Currency, Health, User } from '../api/client.ts';
 import { Link } from '../router.tsx';
 import { ThemeMenu } from '../components/ThemeMenu.tsx';
@@ -28,6 +28,8 @@ export const SECTIONS = [
   { path: '/', label: 'Resumen', Icon: LayoutDashboard },
   { path: '/posiciones', label: 'Posiciones', Icon: Briefcase },
   { path: '/dividendos', label: 'Dividendos', Icon: HandCoins },
+  { path: '/analisis', label: 'Análisis', Icon: ChartPie },
+  { path: '/proyeccion', label: 'Proyección', Icon: Sprout },
   { path: '/operaciones', label: 'Operaciones', Icon: ArrowLeftRight },
   { path: '/caja', label: 'Caja', Icon: Wallet },
   { path: '/configuracion', label: 'Configuración', Icon: Settings },

@@ -320,6 +320,8 @@ describe('posiciones', () => {
         // Sin cotización cargada: los campos de mercado (v0.4) son null.
         marketPrice: null,
         priceAsOf: null,
+        priceDate: null,
+        priceIsIntraday: false,
         priceSource: null,
         marketValue: null,
         unrealizedGain: null,

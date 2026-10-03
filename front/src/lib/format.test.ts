@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDate, formatDateTime, formatMoney, formatRate, formatSignedPercent, formatUnitPrice, isOne, formatPercent, formatQuantity, fractionToPercent, percentToFraction } from './format.ts';
+import { formatAmountInput, formatDate, formatDateTime, formatMoney, parseAmountInput, formatRate, formatSignedPercent, formatUnitPrice, isOne, formatPercent, formatQuantity, fractionToPercent, percentToFraction } from './format.ts';
 
 // Intl en es-CL usa espacios duros en algunos formatos; normalizamos para comparar.
 const n = (s: string) => s.replace(/ | /g, ' ');
@@ -78,13 +78,6 @@ describe('formatDateTime', () => {
   });
 });
 
-describe('formatDateTime con cierres diarios', () => {
-  it('un timestamp a medianoche UTC exacta es un cierre diario: se muestra sólo la fecha, sin correrla por zona horaria', () => {
-    expect(formatDateTime('2026-10-02T00:00:00.000Z')).toBe('02-10-2026');
-    expect(formatDateTime('2026-10-02T00:00:00Z')).toBe('02-10-2026');
-  });
-});
-
 describe('isOne', () => {
   it.each([
     ['1', true],
@@ -124,5 +117,28 @@ describe('percentToFraction / fractionToPercent (aritmética exacta sobre string
     expect(percentToFraction('12,5')).toBe('0.125');
     expect(percentToFraction('abc')).toBeNull();
     expect(percentToFraction('')).toBeNull();
+  });
+});
+
+describe('parseAmountInput (montos escritos al estilo es-CL)', () => {
+  it.each([
+    ['1.200.000', '1200000'],
+    ['1.234,5', '1234.5'],
+    ['1500', '1500'],
+    ['1500.75', '1500.75'],
+    ['12,5', '12.5'],
+    [' 900 ', '900'],
+    ['abc', null],
+    ['1.2.3', null],
+  ])('%s → %s', (input, expected) => {
+    expect(parseAmountInput(input)).toBe(expected);
+  });
+});
+
+describe('formatAmountInput', () => {
+  it('formatea para un input en es-CL, redondeado a la moneda y sin símbolo', () => {
+    expect(n(formatAmountInput('1634.276', 'USD'))).toBe('1.634,28');
+    expect(n(formatAmountInput('1500000.4', 'CLP'))).toBe('1.500.000');
+    expect(parseAmountInput(formatAmountInput('1634.276', 'USD'))).toBe('1634.28');
   });
 });

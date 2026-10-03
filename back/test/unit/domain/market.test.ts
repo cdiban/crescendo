@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { consolidationDue, derivePriceSymbol, isMarketOpen, marketLocalDate, marketPhase } from '../../../src/domain/market-data.ts';
+import { consolidationDue, isIntradayPrice, derivePriceSymbol, isMarketOpen, marketLocalDate, marketPhase } from '../../../src/domain/market-data.ts';
 
 describe('derivePriceSymbol', () => {
   test('XSGO → <SYMBOL>.SN', () => {
@@ -85,5 +85,18 @@ describe('consolidationDue: consolidar el cierre 30 min después del cierre (la 
 
   test('antes de abrir no corresponde (es el día anterior el que ya debió consolidarse)', () => {
     assert.equal(consolidationDue('US', new Date('2026-10-06T12:00:00Z')), false);
+  });
+});
+
+describe('isIntradayPrice: cotización del proveedor de hoy con el mercado abierto', () => {
+  const now = new Date('2026-10-06T15:00:00Z'); // martes: Santiago 12:00, Nueva York 11:00
+  test('proveedor, fecha de hoy y mercado abierto → intradía', () => {
+    assert.equal(isIntradayPrice({ marketCode: 'XSGO', date: '2026-10-06', source: 'PROVIDER', fromQuote: true }, now), true);
+  });
+  test('cierre consolidado, manual, fecha anterior o mercado cerrado → no', () => {
+    assert.equal(isIntradayPrice({ marketCode: 'XSGO', date: '2026-10-06', source: 'PROVIDER', fromQuote: false }, now), false);
+    assert.equal(isIntradayPrice({ marketCode: 'XSGO', date: '2026-10-06', source: 'MANUAL', fromQuote: true }, now), false);
+    assert.equal(isIntradayPrice({ marketCode: 'XSGO', date: '2026-10-05', source: 'PROVIDER', fromQuote: true }, now), false);
+    assert.equal(isIntradayPrice({ marketCode: 'US', date: '2026-10-06', source: 'PROVIDER', fromQuote: true }, new Date('2026-10-06T21:00:00Z')), false);
   });
 });

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { App } from './App.tsx';
 import { calls, mockFetch, problem } from './test/http.ts';
-import { latestFx, portfolioSummary, positionList, summary2026 } from './test/fixtures.ts';
+import { allocation, calendar, latestFx, portfolioSummary, positionList, snowball, summary2026 } from './test/fixtures.ts';
 
 const me = { id: '7f0c1f8e-3b1e-4a51-9f53-0a3f4c1d2e10', email: 'yo@crescendo.cl' };
 const health = { method: 'GET', path: '/api/v1/health', status: 200, body: { status: 'ok', db: 'ok' } };
@@ -133,6 +133,23 @@ describe('App — rutas y moneda de reporte', () => {
     render(<App />);
     await screen.findByRole('heading', { level: 1, name: 'Resumen' });
     await vi.waitFor(() => expect(calls(fetchMock)).toContain('GET /api/v1/portfolio/summary?reportingCurrency=USD'));
+  });
+
+  it('Análisis y Proyección son rutas propias (cargadas bajo demanda)', async () => {
+    window.history.replaceState(null, '', '/proyeccion');
+    mockFetch([
+      { method: 'GET', path: '/api/v1/auth/me', status: 200, body: me },
+      { method: 'GET', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD', monthlyIncomeGoal: null } },
+      health,
+      { method: 'GET', path: '/api/v1/projections/snowball', status: 200, body: snowball() },
+      { method: 'GET', path: '/api/v1/portfolio/summary', status: 200, body: portfolioSummary() },
+      { method: 'GET', path: '/api/v1/portfolio/allocation', status: 200, body: allocation() },
+      { method: 'GET', path: '/api/v1/dividends/calendar', status: 200, body: calendar },
+    ]);
+    render(<App />);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Proyección' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: 'Análisis' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Análisis' })).toBeTruthy();
   });
 
   it('ruta desconocida', async () => {

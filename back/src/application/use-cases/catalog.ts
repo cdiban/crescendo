@@ -9,7 +9,7 @@ import type { InstrumentFilter, Repositories } from '../ports/repositories.ts';
 import type { UnitOfWork } from '../ports/unit-of-work.ts';
 import { failIf } from './shared.ts';
 
-export type QuoteView = { price: Decimal; currency: Currency; asOf: Date; source: PriceSource; previousClose: Decimal | null };
+export type QuoteView = { price: Decimal; currency: Currency; date: string; asOf: Date; source: PriceSource; previousClose: Decimal | null };
 export type InstrumentView = Instrument & {
   effectiveWithholdingRate: Decimal;
   /** Símbolo usado con el proveedor; null = sin cobertura (sólo precio manual). */
@@ -52,7 +52,7 @@ export async function viewInstruments(repos: Repositories, instruments: Instrume
       ...i,
       effectiveWithholdingRate: effectiveWithholdingRate(i, byCode.get(i.marketCode)!),
       effectivePriceSymbol: derivePriceSymbol(i),
-      lastPrice: q ? { price: q.price, currency: i.currency, asOf: q.asOf, source: q.source, previousClose: q.previousClose } : null,
+      lastPrice: q ? { price: q.price, currency: i.currency, date: q.date, asOf: q.asOf, source: q.source, previousClose: q.previousClose } : null,
     };
   });
 }

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Crescendo API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Contrato de la API de Crescendo. Fuente de verdad compartida por Crescendo Back y Crescendo Front.
     Cualquier cambio se propone al orquestador (Crescendo) antes de aplicarse.
@@ -756,6 +756,168 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/BusinessRule' }
 
+  /dividends/monthly:
+    get:
+      tags: [dividends]
+      operationId: getDividendsMonthly
+      summary: (v0.5) Dividendos por mes en moneda de reporte, para gráficos
+      description: Un punto por mes calendario entre from y to (incluye meses en 0). Cada dividendo a TC de su fecha de pago.
+      parameters:
+        - $ref: '#/components/parameters/ReportingCurrency'
+        - { name: from, in: query, schema: { type: string, pattern: '^\d{4}-\d{2}$' }, description: 'YYYY-MM; default el mes del primer dividendo' }
+        - { name: to, in: query, schema: { type: string, pattern: '^\d{4}-\d{2}$' }, description: 'YYYY-MM; default el mes actual + 3 (para ver anunciados)' }
+      responses:
+        '200':
+          description: Serie mensual y totales anuales
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reportingCurrency, months, years]
+                properties:
+                  reportingCurrency: { $ref: '#/components/schemas/Currency' }
+                  months:
+                    type: array
+                    items:
+                      type: object
+                      required: [month, paidNet, paidGross, announcedNet, cumulativePaidNet]
+                      properties:
+                        month: { type: string, examples: ['2026-10'] }
+                        paidNet: { $ref: '#/components/schemas/Decimal' }
+                        paidGross: { $ref: '#/components/schemas/Decimal' }
+                        announcedNet: { $ref: '#/components/schemas/Decimal' }
+                        cumulativePaidNet: { $ref: '#/components/schemas/Decimal', description: Acumulado desde el primer dividendo }
+                  years:
+                    type: array
+                    items:
+                      type: object
+                      required: [year, paidNet, paidGross, withholding, growth]
+                      properties:
+                        year: { type: integer }
+                        paidNet: { $ref: '#/components/schemas/Decimal' }
+                        paidGross: { $ref: '#/components/schemas/Decimal' }
+                        withholding: { $ref: '#/components/schemas/Decimal', description: Retención en origen del año (útil para el crédito por impuesto extranjero) }
+                        growth: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: 'paidNet / paidNet del año anterior − 1; null el primer año. El año en curso compara contra el mismo período (YTD) del año anterior.' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /dividends/calendar:
+    get:
+      tags: [dividends]
+      operationId: getDividendCalendar
+      summary: (v0.5) Calendario de los próximos 12 meses — anunciados + estimados
+      description: |
+        Anunciados: dividendos ANNOUNCED registrados. Estimados: para cada posición abierta, cada dividendo PAID de los últimos 12 meses
+        se proyecta al mismo mes del año siguiente con el mismo monto por acción (o bruto × cantidad actual / cantidad de entonces) y la
+        cantidad actual, salvo que ya exista un ANNOUNCED de ese instrumento en ese mes. Montos netos con la retención efectiva.
+      parameters:
+        - $ref: '#/components/parameters/ReportingCurrency'
+      responses:
+        '200':
+          description: Meses desde el actual, 12 en total
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reportingCurrency, months, totalNet]
+                properties:
+                  reportingCurrency: { $ref: '#/components/schemas/Currency' }
+                  totalNet: { $ref: '#/components/schemas/Decimal', description: Ingreso neto esperado en los 12 meses (reporte) }
+                  months:
+                    type: array
+                    items:
+                      type: object
+                      required: [month, totalNet, announcedNet, estimatedNet, items]
+                      properties:
+                        month: { type: string, examples: ['2026-11'] }
+                        totalNet: { $ref: '#/components/schemas/Decimal' }
+                        announcedNet: { $ref: '#/components/schemas/Decimal', description: (v0.5) Suma de ítems ANNOUNCED del mes (reporte) }
+                        estimatedNet: { $ref: '#/components/schemas/Decimal', description: (v0.5) Suma de ítems ESTIMATED del mes (reporte) }
+                        items:
+                          type: array
+                          items:
+                            type: object
+                            required: [instrumentId, symbol, status, date, currency, netAmount, netAmountReporting]
+                            properties:
+                              instrumentId: { type: string, format: uuid }
+                              symbol: { type: string }
+                              status: { type: string, enum: [ANNOUNCED, ESTIMATED] }
+                              date: { $ref: '#/components/schemas/Date', description: Fecha de pago (estimada = misma fecha del año anterior) }
+                              currency: { $ref: '#/components/schemas/Currency' }
+                              netAmount: { $ref: '#/components/schemas/Decimal' }
+                              netAmountReporting: { $ref: '#/components/schemas/Decimal' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /portfolio/allocation:
+    get:
+      tags: [portfolio]
+      operationId: getPortfolioAllocation
+      summary: (v0.5) Distribución del valor de mercado de las posiciones abiertas
+      parameters:
+        - { name: by, in: query, required: true, schema: { type: string, enum: [instrument, sector, market, currency, account, type] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 }, description: 'Si hay más grupos que limit, devuelve los primeros limit y un ítem final agregado con key "__others" y label "Otros (N)"' }
+        - $ref: '#/components/parameters/ReportingCurrency'
+      responses:
+        '200':
+          description: Grupos ordenados por valor descendente; posiciones sin precio van a su costo y se marcan
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [by, reportingCurrency, total, items]
+                properties:
+                  by: { type: string }
+                  reportingCurrency: { $ref: '#/components/schemas/Currency' }
+                  total: { $ref: '#/components/schemas/Decimal' }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, label, value, weight, expectedAnnualIncomeGross, incomeWeight, valuedAtCost]
+                      properties:
+                        key: { type: string }
+                        label: { type: string, description: 'Ej. "Energy", "Bolsa de Santiago", "USD", "Sin sector"' }
+                        value: { $ref: '#/components/schemas/Decimal' }
+                        weight: { $ref: '#/components/schemas/Decimal', description: Fracción 0–1 del valor }
+                        expectedAnnualIncomeGross: { $ref: '#/components/schemas/Decimal' }
+                        incomeWeight: { $ref: '#/components/schemas/Decimal', description: Fracción 0–1 del ingreso esperado (concentración de la renta) }
+                        valuedAtCost: { $ref: '#/components/schemas/Decimal', description: Parte valorizada al costo por falta de precio }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /projections/snowball:
+    get:
+      tags: [portfolio]
+      operationId: getSnowballProjection
+      summary: (v0.5) P1 — proyección "bola de nieve" del patrimonio y del ingreso por dividendos
+      description: |
+        Simulación determinista mes a mes desde hoy, en moneda de reporte y en valores nominales.
+        Punto de partida: patrimonio actual (netWorth) y yield neto actual (expectedAnnualNet / marketValue).
+        Cada mes: + aporte; dividendos = valor invertido × yield neto / 12 (se reinvierten si reinvestDividends, si no se acumulan aparte);
+        el valor invertido crece a priceGrowth anual; el dividendo por acción crece a dividendGrowth anual
+        (por eso el yield sobre el precio cambia en (1+dividendGrowth)/(1+priceGrowth) por año); el aporte crece a contributionGrowth anual.
+        Es una ilustración con supuestos constantes, no una predicción.
+      parameters:
+        - $ref: '#/components/parameters/ReportingCurrency'
+        - { name: years, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { name: monthlyContribution, in: query, schema: { $ref: '#/components/schemas/Decimal' }, description: 'En moneda de reporte, >= 0. Default: promedio mensual de DEPOSIT − WITHDRAWAL de los últimos 12 meses (excluye los de source IMPORT tipo "no asignado")' }
+        - { name: contributionGrowth, in: query, schema: { $ref: '#/components/schemas/Decimal' }, description: 'Fracción anual, default "0"' }
+        - { name: reinvestDividends, in: query, schema: { type: boolean, default: true } }
+        - { name: dividendGrowth, in: query, schema: { $ref: '#/components/schemas/Decimal' }, description: 'Fracción anual (-0.5 a 0.5), default "0.05"' }
+        - { name: priceGrowth, in: query, schema: { $ref: '#/components/schemas/Decimal' }, description: 'Fracción anual (-0.5 a 0.5), default "0.04"' }
+      responses:
+        '200':
+          description: Proyección anual
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SnowballProjection' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
   /fx-rates:
     get:
       tags: [fx]
@@ -824,6 +986,7 @@ paths:
               minProperties: 1
               properties:
                 reportingCurrency: { $ref: '#/components/schemas/Currency' }
+                monthlyIncomeGoal: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }], description: '(v0.5) Gasto mensual objetivo a cubrir con dividendos; null lo elimina. amount > 0.' }
       responses:
         '200':
           description: Actualizadas
@@ -1190,7 +1353,7 @@ components:
     # ── Portafolio ──
     Position:
       type: object
-      required: [accountId, instrumentId, symbol, name, marketCode, type, sector, currency, quantity, averageCost, costBasis, realizedGain, dividendsGross, dividendsNet, annualDividendPerShare, expectedAnnualIncomeGross, yieldOnCost, firstTradeDate, paymentMonths, reporting]
+      required: [accountId, instrumentId, symbol, name, marketCode, type, sector, currency, quantity, averageCost, costBasis, realizedGain, dividendsGross, dividendsNet, annualDividendPerShare, expectedAnnualIncomeGross, yieldOnCost, firstTradeDate, paymentMonths, reporting, priceDate, priceIsIntraday]
       properties:
         accountId: { type: [string, 'null'], format: uuid, description: null cuando groupBy=instrument }
         instrumentId: { type: string, format: uuid }
@@ -1214,6 +1377,8 @@ components:
         reporting: { $ref: '#/components/schemas/ReportingAmounts' }
         marketPrice: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: '(v0.4) Moneda del instrumento' }
         priceAsOf: { type: [string, 'null'], format: date-time }
+        priceDate: { oneOf: [{ $ref: '#/components/schemas/Date' }, { type: 'null' }], description: '(v0.5) Fecha de negocio del precio' }
+        priceIsIntraday: { type: boolean, description: '(v0.5) true si es una cotización intradía (mostrar hora); false si es un cierre o manual' }
         priceSource: { type: [string, 'null'], enum: [PROVIDER, MANUAL, null] }
         marketValue: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: quantity × marketPrice }
         unrealizedGain: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: marketValue − costBasis (moneda original) }
@@ -1256,8 +1421,9 @@ components:
     # ── Mercado (v0.4) ──
     Quote:
       type: object
-      required: [price, currency, asOf, source, previousClose]
+      required: [price, currency, date, asOf, source, previousClose]
       properties:
+        date: { $ref: '#/components/schemas/Date', description: '(v0.5) Fecha de negocio del precio en la zona del mercado' }
         price: { $ref: '#/components/schemas/Decimal' }
         currency: { $ref: '#/components/schemas/Currency' }
         asOf: { type: string, format: date-time, description: Momento de la cotización según la fuente }
@@ -1265,7 +1431,7 @@ components:
         previousClose: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
     PortfolioHistoryPoint:
       type: object
-      required: [date, marketValue, costBasis, cash, contributedCapital, dividendsNetCumulative, realizedGainCumulative, unpricedAtCost]
+      required: [date, marketValue, costBasis, cash, contributedCapital, dividendsNetCumulative, realizedGainCumulative, unpricedAtCost, netWorth, totalGain]
       properties:
         date: { $ref: '#/components/schemas/Date' }
         marketValue: { $ref: '#/components/schemas/Decimal', description: Posiciones a precio y TC del día }
@@ -1275,6 +1441,48 @@ components:
         dividendsNetCumulative: { $ref: '#/components/schemas/Decimal', description: Dividendos PAID netos acumulados (a TC de cada pago) }
         realizedGainCumulative: { $ref: '#/components/schemas/Decimal' }
         unpricedAtCost: { $ref: '#/components/schemas/Decimal', description: Parte de marketValue valorizada al costo por falta de precio (0 si todo tiene precio) }
+        netWorth: { $ref: '#/components/schemas/Decimal', description: '(v0.5) marketValue + cash' }
+        totalGain: { $ref: '#/components/schemas/Decimal', description: '(v0.5) netWorth − contributedCapital' }
+
+    SnowballProjection:
+      type: object
+      required: [reportingCurrency, assumptions, start, years, goalReachedYear]
+      properties:
+        reportingCurrency: { $ref: '#/components/schemas/Currency' }
+        assumptions:
+          type: object
+          description: Valores efectivamente usados (incluye los defaults calculados)
+          required: [years, monthlyContribution, contributionGrowth, reinvestDividends, dividendGrowth, priceGrowth, startYield]
+          properties:
+            years: { type: integer }
+            monthlyContribution: { $ref: '#/components/schemas/Decimal' }
+            contributionGrowth: { $ref: '#/components/schemas/Decimal' }
+            reinvestDividends: { type: boolean }
+            dividendGrowth: { $ref: '#/components/schemas/Decimal' }
+            priceGrowth: { $ref: '#/components/schemas/Decimal' }
+            startYield: { $ref: '#/components/schemas/Decimal', description: Yield neto inicial, fracción }
+        start:
+          type: object
+          required: [netWorth, annualDividendsNet]
+          properties:
+            netWorth: { $ref: '#/components/schemas/Decimal' }
+            annualDividendsNet: { $ref: '#/components/schemas/Decimal' }
+        years:
+          type: array
+          description: Un punto por año (al cierre de cada año de proyección)
+          items:
+            type: object
+            required: [year, calendarYear, contributedCumulative, netWorth, annualDividendsNet, monthlyDividendsNet, dividendsCumulative, goalCoverage]
+            properties:
+              year: { type: integer, description: '1..years' }
+              calendarYear: { type: integer }
+              contributedCumulative: { $ref: '#/components/schemas/Decimal', description: Aportes nuevos acumulados (sin el patrimonio inicial) }
+              netWorth: { $ref: '#/components/schemas/Decimal', description: Incluye dividendos acumulados no reinvertidos }
+              annualDividendsNet: { $ref: '#/components/schemas/Decimal', description: Dividendos netos de ese año }
+              monthlyDividendsNet: { $ref: '#/components/schemas/Decimal', description: annualDividendsNet / 12 }
+              dividendsCumulative: { $ref: '#/components/schemas/Decimal' }
+              goalCoverage: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: 'monthlyDividendsNet / meta mensual (TC actual); null sin meta' }
+        goalReachedYear: { type: [integer, 'null'], description: Primer calendarYear con goalCoverage >= 1; null si no se alcanza o no hay meta }
 
     # ── Moneda de reporte y tipos de cambio (v0.3) ──
     FxCurrency:
@@ -1298,12 +1506,13 @@ components:
         source: { type: string, description: 'Ej. "mindicador:dolar" o "derived:CLP"' }
     Preferences:
       type: object
-      required: [reportingCurrency]
+      required: [reportingCurrency, monthlyIncomeGoal]
       properties:
         reportingCurrency: { $ref: '#/components/schemas/Currency', description: Default USD }
+        monthlyIncomeGoal: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }], description: '(v0.5) P2: gasto mensual objetivo, en la moneda que el usuario elija' }
     PortfolioSummary:
       type: object
-      required: [reportingCurrency, asOf, fxAsOf, contributedCapital, costBasis, costBasisAtCurrentRate, cash, fxEffect, realizedGain, dividends, exposure, marketValue, netWorth, priceEffect, unrealizedGain, totalGain, pricedCoverage, pricesAsOf]
+      required: [reportingCurrency, asOf, fxAsOf, contributedCapital, costBasis, costBasisAtCurrentRate, cash, fxEffect, realizedGain, dividends, exposure, marketValue, netWorth, priceEffect, unrealizedGain, totalGain, pricedCoverage, pricesAsOf, pricesDate, incomeGoal]
       properties:
         reportingCurrency: { $ref: '#/components/schemas/Currency' }
         asOf: { $ref: '#/components/schemas/Date' }
@@ -1327,15 +1536,28 @@ components:
         totalGain: { $ref: '#/components/schemas/Decimal', description: netWorth − contributedCapital (ganancia total del patrimonio, incluye dividendos y efecto cambiario) }
         pricedCoverage: { $ref: '#/components/schemas/Decimal', description: Fracción del costo vigente con precio }
         pricesAsOf: { type: [string, 'null'], format: date-time, description: Cotización más antigua usada (para mostrar "precios al …") }
+        pricesDate: { oneOf: [{ $ref: '#/components/schemas/Date' }, { type: 'null' }], description: '(v0.5) Fecha de negocio de la cotización más antigua usada' }
         dividends:
           type: object
-          required: [netYearToDate, netLast12Months, netTotal, expectedAnnualGross]
+          required: [netYearToDate, netLast12Months, netTotal, expectedAnnualGross, expectedAnnualNet]
           properties:
             netYearToDate: { $ref: '#/components/schemas/Decimal' }
             netLast12Months: { $ref: '#/components/schemas/Decimal' }
             netTotal: { $ref: '#/components/schemas/Decimal' }
             expectedAnnualGross: { $ref: '#/components/schemas/Decimal', description: Σ quantity × annualDividendPerShare a TC actual }
             currentYield: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: (v0.4) expectedAnnualGross / marketValue, fracción }
+            expectedAnnualNet: { $ref: '#/components/schemas/Decimal', description: '(v0.5) Σ cantidad × dividendo anual por acción × (1 − retención efectiva), a TC actual' }
+        incomeGoal:
+          description: (v0.5) P2. null si el usuario no definió meta.
+          oneOf:
+            - { type: 'null' }
+            - type: object
+              required: [goal, monthlyGoalReporting, coverageLast12Months, coverageExpected]
+              properties:
+                goal: { $ref: '#/components/schemas/Money', description: Tal como la definió el usuario }
+                monthlyGoalReporting: { $ref: '#/components/schemas/Decimal', description: Meta mensual convertida a la moneda de reporte con TC actual }
+                coverageLast12Months: { $ref: '#/components/schemas/Decimal', description: '(netLast12Months / 12) / monthlyGoalReporting, fracción (puede ser > 1)' }
+                coverageExpected: { $ref: '#/components/schemas/Decimal', description: '(expectedAnnualNet / 12) / monthlyGoalReporting' }
         exposure:
           type: array
           description: Distribución por moneda de (costo vigente a TC actual + caja); suma 1

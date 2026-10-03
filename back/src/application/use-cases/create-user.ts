@@ -36,6 +36,7 @@ export class CreateUser {
       passwordHash: await hasher.hash(input.password),
       createdAt: clock.now(),
       reportingCurrency: DEFAULT_REPORTING_CURRENCY,
+      monthlyIncomeGoal: null,
     });
   }
 }

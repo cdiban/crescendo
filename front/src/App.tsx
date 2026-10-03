@@ -11,6 +11,8 @@ const PositionsScreen = lazy(() => import('./screens/PositionsScreen.tsx').then(
 const DividendsScreen = lazy(() => import('./screens/dividends/DividendsScreen.tsx').then((m) => ({ default: m.DividendsScreen })));
 const TradesScreen = lazy(() => import('./screens/trades/TradesScreen.tsx').then((m) => ({ default: m.TradesScreen })));
 const CashScreen = lazy(() => import('./screens/cash/CashScreen.tsx').then((m) => ({ default: m.CashScreen })));
+const AnalysisScreen = lazy(() => import('./screens/AnalysisScreen.tsx').then((m) => ({ default: m.AnalysisScreen })));
+const ProjectionScreen = lazy(() => import('./screens/ProjectionScreen.tsx').then((m) => ({ default: m.ProjectionScreen })));
 const SettingsScreen = lazy(() => import('./screens/settings/SettingsScreen.tsx').then((m) => ({ default: m.SettingsScreen })));
 
 type Session =
@@ -25,6 +27,8 @@ const ROUTES: Record<string, Screen> = {
   '/': ({ api, reportingCurrency }) => <SummaryScreen api={api} reportingCurrency={reportingCurrency} />,
   '/posiciones': ({ api, reportingCurrency }) => <PositionsScreen api={api} reportingCurrency={reportingCurrency} />,
   '/dividendos': ({ api, reportingCurrency }) => <DividendsScreen api={api} reportingCurrency={reportingCurrency} />,
+  '/analisis': ({ api, reportingCurrency }) => <AnalysisScreen api={api} reportingCurrency={reportingCurrency} />,
+  '/proyeccion': ({ api, reportingCurrency }) => <ProjectionScreen api={api} reportingCurrency={reportingCurrency} />,
   '/operaciones': ({ api }) => <TradesScreen api={api} />,
   '/caja': ({ api }) => <CashScreen api={api} />,
   '/configuracion': ({ api }) => <SettingsScreen api={api} />,

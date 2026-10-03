@@ -190,3 +190,40 @@ describe('cliente API — Fase 3', () => {
     expect(history.items[0]).toEqual(point);
   });
 });
+
+describe('cliente API — Fase 4', () => {
+  it('pide dividendos mensuales, calendario, distribución y proyección con sus parámetros', async () => {
+    const fetchMock = mockFetch([
+      { method: 'GET', path: '/api/v1/dividends/monthly', status: 200, body: { reportingCurrency: 'USD', months: [], years: [] } },
+      { method: 'GET', path: '/api/v1/dividends/calendar', status: 200, body: { reportingCurrency: 'USD', totalNet: '0', months: [] } },
+      { method: 'GET', path: '/api/v1/portfolio/allocation', status: 200, body: { by: 'sector', reportingCurrency: 'USD', total: '0', items: [] } },
+      { method: 'GET', path: '/api/v1/projections/snowball', status: 200, body: {} },
+    ]);
+    const api = createApi();
+
+    await api.getDividendsMonthly({ reportingCurrency: 'USD', from: '2024-11' });
+    await api.getDividendCalendar({ reportingCurrency: 'CLP' });
+    await api.getPortfolioAllocation({ by: 'sector', reportingCurrency: 'USD' });
+    await api.getSnowballProjection({ reportingCurrency: 'USD', years: 20, monthlyContribution: '500', reinvestDividends: false, dividendGrowth: '0.05' });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/v1/dividends/monthly?reportingCurrency=USD&from=2024-11',
+      '/api/v1/dividends/calendar?reportingCurrency=CLP',
+      '/api/v1/portfolio/allocation?by=sector&reportingCurrency=USD',
+      '/api/v1/projections/snowball?reportingCurrency=USD&years=20&monthlyContribution=500&reinvestDividends=false&dividendGrowth=0.05',
+    ]);
+  });
+
+  it('actualiza y quita la meta de ingreso pasivo con PATCH /me/preferences', async () => {
+    const fetchMock = mockFetch([{ method: 'PATCH', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD', monthlyIncomeGoal: null } }]);
+    const api = createApi();
+
+    await api.updatePreferences({ monthlyIncomeGoal: { amount: '1500', currency: 'USD' } });
+    await api.updatePreferences({ monthlyIncomeGoal: null });
+
+    expect(fetchMock.mock.calls.map(([, init]) => init?.body)).toEqual([
+      '{"monthlyIncomeGoal":{"amount":"1500","currency":"USD"}}',
+      '{"monthlyIncomeGoal":null}',
+    ]);
+  });
+});

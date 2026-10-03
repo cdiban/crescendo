@@ -22,14 +22,14 @@ const instrument = (over: Partial<Instrument>): Instrument => ({
   id: PEHUENCHE, symbol: 'PEHUENCHE', marketCode: 'XSGO', name: 'Pehuenche', type: 'STOCK', currency: 'CLP',
   sector: 'Energy', industry: 'Electric', withholdingRate: null, effectiveWithholdingRate: '0', annualDividendPerShare: '266',
   priceSymbol: null, effectivePriceSymbol: 'PEHUENCHE.SN',
-  lastPrice: { price: '2701', currency: 'CLP', asOf: '2026-10-03T19:00:00Z', source: 'PROVIDER', previousClose: '2690' },
+  lastPrice: { date: '2026-10-02', price: '2701', currency: 'CLP', asOf: '2026-10-02T19:00:00Z', source: 'PROVIDER', previousClose: '2690' },
   ...over,
 });
 
 export const instruments: Instrument[] = [
   instrument({}),
   instrument({ id: KO, symbol: 'KO', marketCode: 'US', name: 'Coca-Cola', currency: 'USD', sector: 'Consumer', industry: 'Beverages', effectiveWithholdingRate: '0.15', annualDividendPerShare: '2.04',
-    effectivePriceSymbol: 'KO', lastPrice: { price: '68.2', currency: 'USD', asOf: '2026-10-03T19:59:00Z', source: 'PROVIDER', previousClose: '68.5' } }),
+    effectivePriceSymbol: 'KO', lastPrice: { date: '2026-10-03', price: '68.2', currency: 'USD', asOf: '2026-10-03T15:59:00Z', source: 'PROVIDER', previousClose: '68.5' } }),
   instrument({ id: BITO, symbol: 'BITO', marketCode: 'US', name: 'BITO', type: 'ETF', currency: 'USD', sector: null, industry: null, withholdingRate: '0.3', effectiveWithholdingRate: '0.3', annualDividendPerShare: null,
     priceSymbol: 'BITO-X', effectivePriceSymbol: 'BITO-X', lastPrice: null }),
 ];
@@ -39,7 +39,7 @@ const position = (over: Partial<Position>): Position => ({
   currency: 'CLP', quantity: '115', averageCost: '2607.8', costBasis: '299897', realizedGain: '0', dividendsGross: '93178',
   dividendsNet: '93178', annualDividendPerShare: '266', expectedAnnualIncomeGross: '30590', yieldOnCost: '0.102', firstTradeDate: '2025-07-31',
   paymentMonths: [5, 12],
-  marketPrice: '2701', priceAsOf: '2026-10-03T19:00:00Z', priceSource: 'PROVIDER', marketValue: '310615', unrealizedGain: '10718',
+  marketPrice: '2701', priceAsOf: '2026-10-02T19:00:00Z', priceDate: '2026-10-02', priceIsIntraday: false, priceSource: 'PROVIDER', marketValue: '310615', unrealizedGain: '10718',
   unrealizedReturn: '0.0357', totalReturn: '0.3465', currentYield: '0.0985', dayChange: '0.004089',
   reporting: {
     currency: 'USD', costBasis: '318.1234', costBasisAtCurrentRate: '305.5', fxEffect: '-12.6234', realizedGain: '0', dividendsNet: '98.7',
@@ -51,12 +51,12 @@ const usdReporting = (costBasis: string, dividendsNet: string, expected: string 
   currency: 'USD' as const, costBasis, costBasisAtCurrentRate: costBasis, fxEffect: '0', realizedGain: '0', dividendsNet, expectedAnnualIncomeGross: expected,
   marketValue, priceEffect: unrealized, unrealizedGain: unrealized,
 });
-const noMarket = { marketPrice: null, priceAsOf: null, priceSource: null, marketValue: null, unrealizedGain: null, unrealizedReturn: null, totalReturn: null, currentYield: null, dayChange: null };
+const noMarket = { marketPrice: null, priceAsOf: null, priceDate: null, priceIsIntraday: false, priceSource: null, marketValue: null, unrealizedGain: null, unrealizedReturn: null, totalReturn: null, currentYield: null, dayChange: null };
 
 export const positionsByInstrument: Position[] = [
   position({}),
   position({ instrumentId: KO, symbol: 'KO', name: 'Coca-Cola', marketCode: 'US', currency: 'USD', sector: 'Consumer', quantity: '10.5', averageCost: '60.1234', costBasis: '631.2957', dividendsGross: '20.4', dividendsNet: '17.34', annualDividendPerShare: '2.04', expectedAnnualIncomeGross: '21.42', yieldOnCost: '0.0339', paymentMonths: [4, 7, 10, 12],
-    marketPrice: '68.2', priceAsOf: '2026-10-03T19:59:00Z', priceSource: 'PROVIDER', marketValue: '716.1', unrealizedGain: '84.8043',
+    marketPrice: '68.2', priceAsOf: '2026-10-03T15:59:00Z', priceDate: '2026-10-03', priceIsIntraday: true, priceSource: 'PROVIDER', marketValue: '716.1', unrealizedGain: '84.8043',
     unrealizedReturn: '0.1343', totalReturn: '0.161', currentYield: '0.0299', dayChange: '-0.00438',
     reporting: usdReporting('631.2957', '17.34', '21.42', '716.1', '84.8043') }),
   position({ instrumentId: BITO, symbol: 'BITO', name: 'BITO', marketCode: 'US', type: 'ETF', currency: 'USD', sector: null, quantity: '3', averageCost: '20', costBasis: '60', dividendsGross: '0', dividendsNet: '0', annualDividendPerShare: null, expectedAnnualIncomeGross: null, yieldOnCost: null, paymentMonths: [], ...noMarket, reporting: usdReporting('60', '0', null, null, null) }),
@@ -131,7 +131,9 @@ export const portfolioSummary = (over: Partial<PortfolioSummary> = {}): Portfoli
   cash: '3434.1',
   fxEffect: { positions: '-1499.62', cash: '25.3', total: '-1474.32' },
   realizedGain: '204.1',
-  dividends: { netYearToDate: '2100.55', netLast12Months: '2600', netTotal: '4300.2', expectedAnnualGross: '3100.4', currentYield: '0.0484' },
+  dividends: { netYearToDate: '2100.55', netLast12Months: '2600', netTotal: '4300.2', expectedAnnualGross: '3100.4', expectedAnnualNet: '2790.36', currentYield: '0.0484' },
+  incomeGoal: null,
+  pricesDate: '2026-10-02',
   marketValue: '64000.5',
   netWorth: '67434.6',
   priceEffect: '3500.38',
@@ -152,3 +154,71 @@ export const latestFx: FxRate[] = [
   { base: 'EUR', quote: 'USD', date: '2026-10-02', rate: '1.0828814', source: 'derived:CLP' },
   { base: 'CLF', quote: 'CLP', date: '2026-10-03', rate: '39485.65', source: 'mindicador:uf' },
 ];
+
+// ── Fase 4 ──
+import type { Allocation, DividendCalendar, DividendsMonthly, PortfolioHistory, SnowballProjection } from '../api/client.ts';
+
+export const history: PortfolioHistory = {
+  reportingCurrency: 'USD',
+  items: [
+    { date: '2026-04-03', marketValue: '58000', costBasis: '56000', cash: '3000', netWorth: '61000', contributedCapital: '57000', totalGain: '4000', dividendsNetCumulative: '3200.5', realizedGainCumulative: '300', unpricedAtCost: '0' },
+    { date: '2026-07-03', marketValue: '62000', costBasis: '58500', cash: '3200', netWorth: '65200', contributedCapital: '59000', totalGain: '6200', dividendsNetCumulative: '3700.25', realizedGainCumulative: '308.44', unpricedAtCost: '0' },
+    { date: '2026-10-03', marketValue: '69794.0168', costBasis: '61570.59', cash: '3343.6044', netWorth: '73137.6212', contributedCapital: '60436.52', totalGain: '12701.1012', dividendsNetCumulative: '4194.05', realizedGainCumulative: '308.44', unpricedAtCost: '0' },
+  ],
+};
+
+const month = (m: string, paidNet: string, announcedNet: string, cumulative: string, paidGross = paidNet) => ({ month: m, paidNet, paidGross, announcedNet, cumulativePaidNet: cumulative });
+export const dividendsMonthly: DividendsMonthly = {
+  reportingCurrency: 'USD',
+  months: [
+    month('2026-08', '257.11', '0', '3911.05', '280.2'),
+    month('2026-09', '283.07', '0', '4194.05', '301.4'),
+    month('2026-10', '0', '312.4', '4194.05'),
+    month('2026-11', '0', '15.02', '4194.05'),
+  ],
+  years: [
+    { year: 2025, paidNet: '1881.48', paidGross: '2010.2', withholding: '128.72', growth: null },
+    { year: 2026, paidNet: '2312.59', paidGross: '2470.1', withholding: '157.51', growth: '0.4123' },
+  ],
+};
+
+export const calendar: DividendCalendar = {
+  reportingCurrency: 'USD',
+  totalNet: '4072.51',
+  months: [
+    {
+      month: '2026-10', totalNet: '330.2', announcedNet: '312.4', estimatedNet: '17.8',
+      items: [
+        { instrumentId: KO, symbol: 'KO', status: 'ANNOUNCED', date: '2026-10-15', currency: 'USD', netAmount: '4.34', netAmountReporting: '4.34' },
+        { instrumentId: PEHUENCHE, symbol: 'PEHUENCHE', status: 'ESTIMATED', date: '2026-10-23', currency: 'CLP', netAmount: '16800', netAmountReporting: '17.8' },
+      ],
+    },
+    { month: '2026-11', totalNet: '0', announcedNet: '0', estimatedNet: '0', items: [] },
+  ],
+};
+
+export const allocation = (by: Allocation['by'] = 'sector'): Allocation => ({
+  by,
+  reportingCurrency: 'USD',
+  total: '69794.0168',
+  items: [
+    { key: 'Utilities', label: 'Utilities', value: '20000.5', weight: '0.2866', expectedAnnualIncomeGross: '1500', incomeWeight: '0.3683', valuedAtCost: '0' },
+    { key: 'Consumer', label: 'Consumer', value: '15000', weight: '0.2149', expectedAnnualIncomeGross: '600', incomeWeight: '0.1473', valuedAtCost: '0' },
+    { key: '__others', label: 'Otros (12)', value: '34793.5168', weight: '0.4985', expectedAnnualIncomeGross: '1972.51', incomeWeight: '0.4844', valuedAtCost: '120' },
+  ],
+});
+
+export const snowball = (over: Partial<SnowballProjection> = {}): SnowballProjection => ({
+  reportingCurrency: 'USD',
+  assumptions: { years: 3, monthlyContribution: '850', contributionGrowth: '0', reinvestDividends: true, dividendGrowth: '0.05', priceGrowth: '0.04', startYield: '0.0558' },
+  start: { netWorth: '73137.62', annualDividendsNet: '4072.51' },
+  years: [
+    { year: 1, calendarYear: 2027, contributedCumulative: '10200', netWorth: '90100.5', annualDividendsNet: '4600.2', monthlyDividendsNet: '383.35', dividendsCumulative: '4600.2', goalCoverage: '0.7667' },
+    { year: 2, calendarYear: 2028, contributedCumulative: '20400', netWorth: '108900.75', annualDividendsNet: '5800.4', monthlyDividendsNet: '483.37', dividendsCumulative: '10400.6', goalCoverage: '0.9667' },
+    { year: 3, calendarYear: 2029, contributedCumulative: '30600', netWorth: '129500', annualDividendsNet: '7100.9', monthlyDividendsNet: '591.74', dividendsCumulative: '17501.5', goalCoverage: '1.1835' },
+  ],
+  goalReachedYear: 2029,
+  ...over,
+});
+
+export const incomeGoal = { goal: { amount: '500', currency: 'USD' as const }, monthlyGoalReporting: '500', coverageLast12Months: '0.5128', coverageExpected: '0.6788' };

@@ -64,7 +64,7 @@ describe('instrumentos: símbolo del proveedor y última cotización', () => {
   test('derivado por mercado, override y lastPrice', async () => {
     const k = await expectStatus(await ana.get(`/instruments/${ko.id}`), 200);
     assert.deepEqual([k.priceSymbol, k.effectivePriceSymbol], [null, 'KO']);
-    assert.deepEqual(k.lastPrice, { price: '120', currency: 'USD', asOf: '2025-10-01T19:00:00.000Z', source: 'PROVIDER', previousClose: '118' });
+    assert.deepEqual(k.lastPrice, { date: '2025-10-01', price: '120', currency: 'USD', asOf: '2025-10-01T19:00:00.000Z', source: 'PROVIDER', previousClose: '118' });
     const p = await expectStatus(await ana.get(`/instruments/${peh.id}`), 200);
     assert.equal(p.effectivePriceSymbol, 'PEHUENCHE.SN');
 
@@ -208,6 +208,7 @@ describe('serie histórica', () => {
     const s = await expectStatus(await ana.get(`/portfolio/summary?reportingCurrency=CLP&asOf=${ASOF}`), 200);
     assert.equal(last.date, ASOF);
     assert.equal(d(last.marketValue).add(d(last.cash)).toString(), s.netWorth);
+    assert.deepEqual([last.netWorth, last.totalGain], [s.netWorth, s.totalGain]);
     assert.deepEqual(
       [last.costBasis, last.contributedCapital, last.dividendsNetCumulative, last.realizedGainCumulative],
       [s.costBasis, s.contributedCapital, s.dividends.netTotal, s.realizedGain],
@@ -241,5 +242,218 @@ describe('worker de precios con la fuente caída', () => {
     assert.deepEqual(report.failures.map((f) => f.priceSymbol).sort(), ['KO', 'PEHUENCHE.SN']);
     const p = await expectStatus(await ana.get(`/positions?asOf=${ASOF}`), 200);
     assert.equal(row(p.items, 'KO').marketPrice, '120');
+  });
+});
+
+describe('v0.5 — fechas de negocio del precio', () => {
+  test('Quote.date, Position.priceDate y priceIsIntraday, Summary.pricesDate', async () => {
+    const k = await expectStatus(await ana.get(`/instruments/${ko.id}`), 200);
+    assert.equal(k.lastPrice.date, ASOF);
+    const p = await expectStatus(await ana.get(`/positions?asOf=${ASOF}`), 200);
+    // Cotización de una fecha pasada: no es intradía.
+    assert.deepEqual([row(p.items, 'KO').priceDate, row(p.items, 'KO').priceIsIntraday], [ASOF, false]);
+    const s = await expectStatus(await ana.get(`/portfolio/summary?asOf=${ASOF}`), 200);
+    assert.equal(s.pricesDate, ASOF);
+  });
+});
+
+describe('v0.5 — P2 meta de ingreso pasivo', () => {
+  test('preferencias: por defecto sin meta; PATCH la define y null la elimina', async () => {
+    assert.deepEqual(await expectStatus(await ana.get('/me/preferences'), 200), { reportingCurrency: 'USD', monthlyIncomeGoal: null });
+    const set = await expectStatus(await ana.patch('/me/preferences', { monthlyIncomeGoal: { amount: '1000', currency: 'USD' } }), 200);
+    assert.deepEqual(set, { reportingCurrency: 'USD', monthlyIncomeGoal: { amount: '1000', currency: 'USD' } });
+    const both = await expectStatus(await ana.patch('/me/preferences', { reportingCurrency: 'CLP' }), 200);
+    assert.deepEqual(both.monthlyIncomeGoal, { amount: '1000', currency: 'USD' }, 'cambiar la moneda de reporte no toca la meta');
+    assert.equal((await expectStatus(await ana.patch('/me/preferences', { monthlyIncomeGoal: null }), 200)).monthlyIncomeGoal, null);
+  });
+
+  test('validación de la meta', async () => {
+    for (const monthlyIncomeGoal of [{ amount: '0', currency: 'USD' }, { amount: '10', currency: 'ARS' }, { amount: 10, currency: 'USD' }, { amount: '10' }, '1000', { amount: '10', currency: 'USD', x: 1 }]) {
+      const problem = await expectStatus(await ana.patch('/me/preferences', { monthlyIncomeGoal }), 400);
+      assert.ok(problem.errors.some((e: { field: string }) => e.field.startsWith('monthlyIncomeGoal')), JSON.stringify(problem.errors));
+    }
+  });
+
+  test('resumen: ingreso esperado neto y cobertura de la meta convertida a TC actual', async () => {
+    let s = await expectStatus(await ana.get(`/portfolio/summary?reportingCurrency=CLP&asOf=${ASOF}`), 200);
+    assert.equal(s.incomeGoal, null);
+    // KO 9 × 2.04 × (1 − 0.15) = 15.606 USD × 980 = 15293.88; PEHUENCHE 100 × 266 × (1 − 0) = 26600
+    assert.equal(s.dividends.expectedAnnualNet, '41893.88');
+
+    await expectStatus(await ana.patch('/me/preferences', { monthlyIncomeGoal: { amount: '1000', currency: 'USD' } }), 200);
+    s = await expectStatus(await ana.get(`/portfolio/summary?reportingCurrency=CLP&asOf=${ASOF}`), 200);
+    // meta 1000 USD × 980 = 980000 CLP/mes; 12 meses: 13075 / (12 × 980000); esperado 41893.88 / (12 × 980000)
+    assert.deepEqual(s.incomeGoal, {
+      goal: { amount: '1000', currency: 'USD' },
+      monthlyGoalReporting: '980000',
+      coverageLast12Months: '0.001112',
+      coverageExpected: '0.003562',
+    });
+    const usd = await expectStatus(await ana.get(`/portfolio/summary?asOf=${ASOF}`), 200);
+    assert.deepEqual([usd.dividends.expectedAnnualNet, usd.incomeGoal.monthlyGoalReporting], ['42.7489', '1000']);
+  });
+});
+
+describe('v0.5 — dividendos por mes', () => {
+  test('meses en 0 incluidos, cada dividendo a TC de su fecha, años con retención y crecimiento YTD', async () => {
+    const res = await expectStatus(await ana.get('/dividends/monthly?reportingCurrency=CLP&from=2025-03&to=2025-06'), 200);
+    assert.equal(res.reportingCurrency, 'CLP');
+    assert.deepEqual(res.months, [
+      { month: '2025-03', paidNet: '0', paidGross: '0', announcedNet: '0', cumulativePaidNet: '0' },
+      // KO: neto 8.5, bruto 10 USD a 950 (TC del 10-mar, último en o antes del 1-abr)
+      { month: '2025-04', paidNet: '8075', paidGross: '9500', announcedNet: '0', cumulativePaidNet: '8075' },
+      { month: '2025-05', paidNet: '5000', paidGross: '5000', announcedNet: '0', cumulativePaidNet: '13075' },
+      { month: '2025-06', paidNet: '0', paidGross: '0', announcedNet: '0', cumulativePaidNet: '13075' },
+    ]);
+    const y2025 = res.years.find((y: { year: number }) => y.year === 2025);
+    assert.deepEqual(y2025, { year: 2025, paidNet: '13075', paidGross: '14500', withholding: '1425', growth: null });
+  });
+
+  test('defaults: desde el mes del primer dividendo hasta el mes actual + 3', async () => {
+    const res = await expectStatus(await ana.get('/dividends/monthly'), 200);
+    assert.equal(res.months[0].month, '2025-04');
+    const now = new Date();
+    const plus3 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 3, 1)).toISOString().slice(0, 7);
+    assert.equal(res.months.at(-1).month, plus3);
+  });
+
+  test('validación', async () => {
+    for (const q of ['from=2025-13', 'to=2025-1', 'from=2025-06&to=2025-01', 'reportingCurrency=CLF']) {
+      await expectStatus(await ana.get(`/dividends/monthly?${q}`), 400);
+    }
+  });
+});
+
+/** Fecha de negocio de hoy (Chile) desplazada `months` meses, en el día 15 (siempre válido). */
+function monthShift(months: number): string {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date());
+  const [y, m] = today.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(y, m - 1 + months, 15)).toISOString().slice(0, 10);
+}
+
+async function timed(path: string) {
+  const started = performance.now();
+  const body = await expectStatus(await ana.get(path), 200);
+  return { body, ms: performance.now() - started };
+}
+
+describe('v0.5 — calendario de dividendos', () => {
+  test('anunciados + estimados de 12 meses; un estimado no duplica un anunciado del mismo instrumento y mes', async () => {
+    const ib = (await expectStatus(await ana.get('/accounts'), 200)).items.find((a: { name: string }) => a.name === 'IB');
+    const itau = (await expectStatus(await ana.get('/accounts'), 200)).items.find((a: { name: string }) => a.name === 'Itaú');
+    const post = async (body: object) => expectStatus(await ana.post('/dividends', { kind: 'REGULAR', ...body }), 201);
+    // KO cobró hace 2 y hace 5 meses (9 acciones → 1 USD por acción); PEHUENCHE hace 1 mes (100 acciones → 10 CLP).
+    await post({ accountId: ib.id, instrumentId: ko.id, status: 'PAID', paymentDate: monthShift(-2), grossAmount: '9' });
+    await post({ accountId: ib.id, instrumentId: ko.id, status: 'PAID', paymentDate: monthShift(-5), grossAmount: '9' });
+    await post({ accountId: itau.id, instrumentId: peh.id, status: 'PAID', kind: 'FINAL', paymentDate: monthShift(-1), grossAmount: '1000' });
+    // Ya anunciado: KO en el mes del estimado de "hace 5 meses" (+12 = dentro de 7 meses).
+    await post({ accountId: ib.id, instrumentId: ko.id, status: 'ANNOUNCED', paymentDate: monthShift(7), grossAmount: '10' });
+
+    const { body: c, ms } = await timed('/dividends/calendar?reportingCurrency=CLP');
+    assert.ok(ms < 300, `tardó ${ms} ms`);
+    assert.equal(c.months.length, 12);
+    assert.equal(c.months[0].month, monthShift(0).slice(0, 7));
+    const month = (k: number) => c.months.find((m: { month: string }) => m.month === monthShift(k).slice(0, 7));
+
+    // +10: estimado de KO = 1 USD × 9 × (1 − 0.15) = 7.65 USD × 980 = 7497 CLP
+    assert.deepEqual(month(10).items.map((i: Record<string, string>) => [i.symbol, i.status, i.netAmount, i.netAmountReporting]), [['KO', 'ESTIMATED', '7.65', '7497']]);
+    // +7: sólo el anunciado (8.5 USD neto), el estimado se descarta
+    assert.deepEqual(month(7).items.map((i: Record<string, string>) => [i.symbol, i.status]), [['KO', 'ANNOUNCED']]);
+    assert.deepEqual([month(7).announcedNet, month(7).estimatedNet], ['8330', '0']);
+    // +11: PEHUENCHE 10 × 100 = 1000 CLP
+    assert.deepEqual(month(11).items.map((i: Record<string, string>) => [i.symbol, i.netAmount, i.netAmountReporting]), [['PEHUENCHE', '1000', '1000']]);
+    assert.equal(c.totalNet, '16827');
+    assert.equal(
+      c.months.reduce((acc: Decimal, m: { totalNet: string }) => acc.add(d(m.totalNet)), Decimal.ZERO).toString(),
+      c.totalNet,
+    );
+  });
+});
+
+describe('v0.5 — distribución', () => {
+  test('por moneda: valor a TC actual, pesos que suman 1, ingreso esperado y su peso', async () => {
+    const { body: a, ms } = await timed('/portfolio/allocation?by=currency&reportingCurrency=CLP');
+    assert.ok(ms < 300, `tardó ${ms} ms`);
+    assert.deepEqual(a, {
+      by: 'currency',
+      reportingCurrency: 'CLP',
+      total: '1168400',
+      items: [
+        { key: 'USD', label: 'USD', value: '1058400', weight: '0.905854', expectedAnnualIncomeGross: '17992.8', incomeWeight: '0.403491', valuedAtCost: '0' },
+        { key: 'CLP', label: 'CLP', value: '110000', weight: '0.094146', expectedAnnualIncomeGross: '26600', incomeWeight: '0.596509', valuedAtCost: '0' },
+      ],
+    });
+  });
+
+  test('un instrumento sin precio va a su costo (a TC actual) y se marca', async () => {
+    await h.container.dataSource.query(`DELETE FROM price_quotes WHERE instrument_id = $1`, [peh.id]);
+    const a = await expectStatus(await ana.get('/portfolio/allocation?by=instrument&reportingCurrency=CLP'), 200);
+    assert.deepEqual(a.items.map((i: Record<string, string>) => [i.label, i.value, i.weight, i.valuedAtCost]), [
+      ['KO', '1058400', '0.913674', '0'],
+      ['PEHUENCHE', '100000', '0.086326', '100000'],
+    ]);
+  });
+
+  test('etiquetas por sector, mercado, cuenta y tipo; limit con "Otros (N)"', async () => {
+    const label = async (by: string) => (await expectStatus(await ana.get(`/portfolio/allocation?by=${by}&reportingCurrency=CLP`), 200)).items.map((i: { label: string }) => i.label);
+    assert.deepEqual(await label('sector'), ['Sin sector']);
+    assert.deepEqual(await label('market'), ['Estados Unidos', 'Bolsa de Santiago']);
+    assert.deepEqual(await label('account'), ['IB', 'Itaú']);
+    assert.deepEqual(await label('type'), ['STOCK']);
+    const limited = await expectStatus(await ana.get('/portfolio/allocation?by=instrument&limit=1&reportingCurrency=CLP'), 200);
+    assert.deepEqual(limited.items.map((i: Record<string, string>) => [i.key, i.label, i.weight]), [[ko.id, 'KO', '0.905854'], ['__others', 'Otros (1)', '0.094146']]);
+    for (const q of ['', 'by=broker', 'by=sector&limit=0', 'by=sector&limit=101']) {
+      await expectStatus(await ana.get(`/portfolio/allocation?${q}`), 400);
+    }
+  });
+});
+
+describe('v0.5 — P1 proyección bola de nieve', () => {
+  test('defaults: aporte promedio de 12 meses sin el "Aporte no asignado" de la importación; yield neto actual', async () => {
+    const ib = (await expectStatus(await ana.get('/accounts'), 200)).items.find((a: { name: string }) => a.name === 'IB');
+    await expectStatus(await ana.post('/cash-movements', { accountId: ib.id, date: monthShift(-1), type: 'DEPOSIT', amount: '1200', currency: 'USD' }), 201);
+    const { UNASSIGNED_IMPORT_DEPOSIT_DESCRIPTION } = await import('../../src/domain/cash-movement.ts');
+    await h.container.useCases.cash.create(
+      (await h.container.dataSource.query(`SELECT id FROM users WHERE email = 'ana@example.com'`))[0].id,
+      { accountId: ib.id, date: monthShift(-1), type: 'DEPOSIT', amount: d('5000'), currency: 'USD', description: UNASSIGNED_IMPORT_DEPOSIT_DESCRIPTION },
+      'IMPORT',
+    );
+    const { body: p, ms } = await timed('/projections/snowball?reportingCurrency=CLP');
+    assert.ok(ms < 300, `tardó ${ms} ms`);
+    // 1200 USD × 980 / 12 = 98000 CLP al mes; el depósito "no asignado" no cuenta.
+    assert.deepEqual(p.assumptions, {
+      years: 20,
+      monthlyContribution: '98000',
+      contributionGrowth: '0',
+      reinvestDividends: true,
+      dividendGrowth: '0.05',
+      priceGrowth: '0.04',
+      startYield: '0.035856',
+    });
+    assert.equal(p.years.length, 20);
+    assert.equal(p.start.annualDividendsNet, '41893.88');
+    const currentYear = Number(monthShift(0).slice(0, 4));
+    assert.equal(p.years[0].calendarYear, currentYear + 1);
+    assert.equal(p.years[19].contributedCumulative, String(98000 * 240));
+    assert.equal(p.goalReachedYear, null);
+    assert.equal(p.years[0].goalCoverage, null);
+  });
+
+  test('parámetros explícitos y meta: sin aportes ni crecimiento ni reinversión el valor invertido queda constante', async () => {
+    await expectStatus(await ana.patch('/me/preferences', { monthlyIncomeGoal: { amount: '1000', currency: 'USD' } }), 200);
+    const p = await expectStatus(
+      await ana.get('/projections/snowball?reportingCurrency=CLP&years=3&monthlyContribution=0&reinvestDividends=false&dividendGrowth=0&priceGrowth=0'),
+      200,
+    );
+    const start = d(p.start.netWorth);
+    for (const y of p.years) assert.equal(d(y.netWorth).sub(d(y.dividendsCumulative)).sub(start).abs().lte(d('0.0004')), true);
+    assert.ok(p.years.every((y: { goalCoverage: string | null }) => y.goalCoverage !== null));
+    assert.equal(p.goalReachedYear, null);
+  });
+
+  test('validación', async () => {
+    for (const q of ['years=0', 'years=51', 'monthlyContribution=-1', 'priceGrowth=0.6', 'dividendGrowth=-0.51', 'contributionGrowth=1', 'reinvestDividends=si', 'monthlyContribution=1e3']) {
+      await expectStatus(await ana.get(`/projections/snowball?${q}`), 400);
+    }
   });
 });

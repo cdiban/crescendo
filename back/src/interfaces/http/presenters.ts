@@ -1,6 +1,7 @@
 import type { CashMovement } from '../../domain/cash-movement.ts';
 import type { Decimal } from '../../domain/decimal.ts';
 import type { Market } from '../../domain/market.ts';
+import type { PreferencesView } from '../../application/use-cases/preferences.ts';
 import type { HistoryPoint } from '../../domain/portfolio-history.ts';
 import type { AccountView } from '../../application/use-cases/accounts.ts';
 import type { CashTransferView } from '../../application/use-cases/cash.ts';
@@ -8,6 +9,10 @@ import type { InstrumentView } from '../../application/use-cases/catalog.ts';
 import type { DividendView } from '../../application/use-cases/dividends.ts';
 import type {
   DividendSummary,
+  DividendsMonthly,
+  DividendCalendar,
+  Allocation,
+  SnowballProjection,
   PortfolioSummary,
   PositionsResult,
   PositionView,
@@ -45,6 +50,7 @@ export const presentInstrument = (i: InstrumentView) => ({
   effectivePriceSymbol: i.effectivePriceSymbol,
   lastPrice: i.lastPrice
     ? {
+        date: i.lastPrice.date,
         price: s(i.lastPrice.price),
         currency: i.lastPrice.currency,
         asOf: i.lastPrice.asOf.toISOString(),
@@ -159,6 +165,8 @@ export const presentPosition = (p: PositionView) => ({
   reporting: presentReporting(p.reporting),
   marketPrice: sn(p.marketPrice),
   priceAsOf: p.priceAsOf?.toISOString() ?? null,
+  priceDate: p.priceDate,
+  priceIsIntraday: p.priceIsIntraday,
   priceSource: p.priceSource,
   marketValue: sn(p.marketValue),
   unrealizedGain: sn(p.unrealizedGain),
@@ -203,12 +211,22 @@ export const presentPortfolioSummary = (p: PortfolioSummary) => ({
   totalGain: s(p.totalGain),
   pricedCoverage: s(p.pricedCoverage),
   pricesAsOf: p.pricesAsOf?.toISOString() ?? null,
+  pricesDate: p.pricesDate,
+  incomeGoal: p.incomeGoal
+    ? {
+        goal: { amount: s(p.incomeGoal.goal.amount), currency: p.incomeGoal.goal.currency },
+        monthlyGoalReporting: s(p.incomeGoal.monthlyGoalReporting),
+        coverageLast12Months: s(p.incomeGoal.coverageLast12Months),
+        coverageExpected: s(p.incomeGoal.coverageExpected),
+      }
+    : null,
   dividends: {
     netYearToDate: s(p.dividends.netYearToDate),
     netLast12Months: s(p.dividends.netLast12Months),
     netTotal: s(p.dividends.netTotal),
     expectedAnnualGross: s(p.dividends.expectedAnnualGross),
     currentYield: sn(p.dividends.currentYield),
+    expectedAnnualNet: s(p.dividends.expectedAnnualNet),
   },
   exposure: p.exposure.map((e) => ({ currency: e.currency, amount: s(e.amount), weight: s(e.weight) })),
 });
@@ -253,4 +271,83 @@ export const presentHistoryPoint = (p: HistoryPoint) => ({
   dividendsNetCumulative: s(p.dividendsNetCumulative),
   realizedGainCumulative: s(p.realizedGainCumulative),
   unpricedAtCost: s(p.unpricedAtCost),
+  netWorth: s(p.netWorth),
+  totalGain: s(p.totalGain),
+});
+
+export const presentPreferences = (p: PreferencesView) => ({
+  reportingCurrency: p.reportingCurrency,
+  monthlyIncomeGoal: p.monthlyIncomeGoal ? { amount: s(p.monthlyIncomeGoal.amount), currency: p.monthlyIncomeGoal.currency } : null,
+});
+
+export const presentDividendsMonthly = (m: DividendsMonthly) => ({
+  reportingCurrency: m.reportingCurrency,
+  months: m.months.map((x) => ({
+    month: x.month,
+    paidNet: s(x.paidNet),
+    paidGross: s(x.paidGross),
+    announcedNet: s(x.announcedNet),
+    cumulativePaidNet: s(x.cumulativePaidNet),
+  })),
+  years: m.years.map((y) => ({ year: y.year, paidNet: s(y.paidNet), paidGross: s(y.paidGross), withholding: s(y.withholding), growth: sn(y.growth) })),
+});
+
+export const presentCalendar = (c: DividendCalendar) => ({
+  reportingCurrency: c.reportingCurrency,
+  totalNet: s(c.totalNet),
+  months: c.months.map((m) => ({
+    month: m.month,
+    totalNet: s(m.totalNet),
+    announcedNet: s(m.announcedNet),
+    estimatedNet: s(m.estimatedNet),
+    items: m.items.map((i) => ({
+      instrumentId: i.instrumentId,
+      symbol: i.symbol,
+      status: i.status,
+      date: i.date,
+      currency: i.currency,
+      netAmount: s(i.netAmount),
+      netAmountReporting: s(i.netAmountReporting),
+    })),
+  })),
+});
+
+export const presentAllocation = (a: Allocation) => ({
+  by: a.by,
+  reportingCurrency: a.reportingCurrency,
+  total: s(a.total),
+  items: a.items.map((i) => ({
+    key: i.key,
+    label: i.label,
+    value: s(i.value),
+    weight: s(i.weight),
+    expectedAnnualIncomeGross: s(i.expectedAnnualIncomeGross),
+    incomeWeight: s(i.incomeWeight),
+    valuedAtCost: s(i.valuedAtCost),
+  })),
+});
+
+export const presentSnowball = (p: SnowballProjection) => ({
+  reportingCurrency: p.reportingCurrency,
+  assumptions: {
+    years: p.assumptions.years,
+    monthlyContribution: s(p.assumptions.monthlyContribution),
+    contributionGrowth: s(p.assumptions.contributionGrowth),
+    reinvestDividends: p.assumptions.reinvestDividends,
+    dividendGrowth: s(p.assumptions.dividendGrowth),
+    priceGrowth: s(p.assumptions.priceGrowth),
+    startYield: s(p.assumptions.startYield),
+  },
+  start: { netWorth: s(p.start.netWorth), annualDividendsNet: s(p.start.annualDividendsNet) },
+  years: p.years.map((y) => ({
+    year: y.year,
+    calendarYear: y.calendarYear,
+    contributedCumulative: s(y.contributedCumulative),
+    netWorth: s(y.netWorth),
+    annualDividendsNet: s(y.annualDividendsNet),
+    monthlyDividendsNet: s(y.monthlyDividendsNet),
+    dividendsCumulative: s(y.dividendsCumulative),
+    goalCoverage: sn(y.goalCoverage),
+  })),
+  goalReachedYear: p.goalReachedYear,
 });

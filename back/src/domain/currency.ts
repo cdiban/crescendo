@@ -1,5 +1,7 @@
 import type { Decimal } from './decimal.ts';
 
+export type Money = { amount: Decimal; currency: Currency };
+
 export const CURRENCIES = ['CLP', 'USD', 'EUR'] as const;
 export type Currency = (typeof CURRENCIES)[number];
 

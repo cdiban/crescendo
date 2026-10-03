@@ -88,7 +88,7 @@ describe('SettingsScreen — instrumentos', () => {
 
     expect(calls(fetchMock)).toContain('GET /api/v1/instruments?limit=100&offset=0');
     expect(text(rowOf('Lista de instrumentos', /^KO/))).toMatch(
-      /^KOUSCoca-ColaAcciónUSDConsumer \/ BeveragesKOUS\$68,2003-10-2026 \d\d:\d\d · Proveedor15% \(mercado\)US\$2,04EditarRegistrar precio$/,
+      /^KOUSCoca-ColaAcciónUSDConsumer \/ BeveragesKOUS\$68,2003-10-2026 · Proveedor15% \(mercado\)US\$2,04EditarRegistrar precio$/,
     );
     expect(text(rowOf('Lista de instrumentos', /^BITO/))).toBe('BITOUSBITOETFUSD—BITO-X(personalizado)—30%—EditarRegistrar precio');
 
@@ -189,5 +189,60 @@ describe('SettingsScreen — instrumentos', () => {
     expect(lastBody(fetchMock, 'POST /api/v1/instruments')).toEqual({
       symbol: 'ABBV', marketCode: 'US', name: 'AbbVie', type: 'STOCK', sector: 'Health', industry: null, withholdingRate: null, annualDividendPerShare: null,
     });
+  });
+});
+
+describe('SettingsScreen — meta de ingreso pasivo', () => {
+  const prefs = (goal: { amount: string; currency: 'CLP' | 'USD' | 'EUR' } | null) => ({
+    method: 'GET', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD', monthlyIncomeGoal: goal },
+  });
+  async function openGoal() {
+    fireEvent.click(await screen.findByRole('tab', { name: 'Meta de ingreso' }));
+    return within(await screen.findByRole('form', { name: 'Meta de ingreso pasivo' }));
+  }
+
+  it('muestra la meta actual y la guarda con PATCH (monto y moneda)', async () => {
+    const fetchMock = mockFetch(routes([
+      prefs({ amount: '1500', currency: 'USD' }),
+      { method: 'PATCH', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD', monthlyIncomeGoal: { amount: '1200000', currency: 'CLP' } } },
+    ]));
+    render(<SettingsScreen api={createApi()} />);
+    const form = await openGoal();
+
+    await vi.waitFor(() => expect((form.getByLabelText('Monto mensual') as HTMLInputElement).value).toBe('1500'));
+    expect((form.getByLabelText('Moneda') as HTMLSelectElement).value).toBe('USD');
+    fireEvent.change(form.getByLabelText('Monto mensual'), { target: { value: '1.200.000' } });
+    fireEvent.change(form.getByLabelText('Moneda'), { target: { value: 'CLP' } });
+    fireEvent.click(form.getByRole('button', { name: 'Guardar meta' }));
+
+    await vi.waitFor(() => expect(calls(fetchMock)).toContain('PATCH /api/v1/me/preferences'));
+    expect(lastBody(fetchMock, 'PATCH /api/v1/me/preferences')).toEqual({ monthlyIncomeGoal: { amount: '1200000', currency: 'CLP' } });
+    expect((await form.findByRole('status')).textContent).toMatch(/Meta guardada: \$1\.200\.000 al mes/);
+  });
+
+  it('quita la meta con monthlyIncomeGoal null', async () => {
+    const fetchMock = mockFetch(routes([
+      prefs({ amount: '1500', currency: 'USD' }),
+      { method: 'PATCH', path: '/api/v1/me/preferences', status: 200, body: { reportingCurrency: 'USD', monthlyIncomeGoal: null } },
+    ]));
+    render(<SettingsScreen api={createApi()} />);
+    const form = await openGoal();
+    fireEvent.click(await form.findByRole('button', { name: 'Quitar meta' }));
+
+    await vi.waitFor(() => expect(lastBody(fetchMock, 'PATCH /api/v1/me/preferences')).toEqual({ monthlyIncomeGoal: null }));
+    await vi.waitFor(() => expect((form.getByLabelText('Monto mensual') as HTMLInputElement).value).toBe(''));
+    expect(form.queryByRole('button', { name: 'Quitar meta' })).toBeNull();
+    expect((await form.findByRole('status')).textContent).toMatch(/Meta eliminada/);
+  });
+
+  it('sin meta no ofrece quitarla y valida el monto', async () => {
+    const fetchMock = mockFetch(routes([prefs(null)]));
+    render(<SettingsScreen api={createApi()} />);
+    const form = await openGoal();
+    expect(form.queryByRole('button', { name: 'Quitar meta' })).toBeNull();
+    fireEvent.change(form.getByLabelText('Monto mensual'), { target: { value: '0' } });
+    fireEvent.click(form.getByRole('button', { name: 'Guardar meta' }));
+    expect((await form.findByRole('alert')).textContent).toMatch(/mayor que 0/);
+    expect(calls(fetchMock).some((c) => c.startsWith('PATCH'))).toBe(false);
   });
 });

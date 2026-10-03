@@ -443,6 +443,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dividends/monthly": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * (v0.5) Dividendos por mes en moneda de reporte, para gráficos
+         * @description Un punto por mes calendario entre from y to (incluye meses en 0). Cada dividendo a TC de su fecha de pago.
+         */
+        get: operations["getDividendsMonthly"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dividends/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * (v0.5) Calendario de los próximos 12 meses — anunciados + estimados
+         * @description Anunciados: dividendos ANNOUNCED registrados. Estimados: para cada posición abierta, cada dividendo PAID de los últimos 12 meses
+         *     se proyecta al mismo mes del año siguiente con el mismo monto por acción (o bruto × cantidad actual / cantidad de entonces) y la
+         *     cantidad actual, salvo que ya exista un ANNOUNCED de ese instrumento en ese mes. Montos netos con la retención efectiva.
+         */
+        get: operations["getDividendCalendar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/portfolio/allocation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** (v0.5) Distribución del valor de mercado de las posiciones abiertas */
+        get: operations["getPortfolioAllocation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projections/snowball": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * (v0.5) P1 — proyección "bola de nieve" del patrimonio y del ingreso por dividendos
+         * @description Simulación determinista mes a mes desde hoy, en moneda de reporte y en valores nominales.
+         *     Punto de partida: patrimonio actual (netWorth) y yield neto actual (expectedAnnualNet / marketValue).
+         *     Cada mes: + aporte; dividendos = valor invertido × yield neto / 12 (se reinvierten si reinvestDividends, si no se acumulan aparte);
+         *     el valor invertido crece a priceGrowth anual; el dividendo por acción crece a dividendGrowth anual
+         *     (por eso el yield sobre el precio cambia en (1+dividendGrowth)/(1+priceGrowth) por año); el aporte crece a contributionGrowth anual.
+         *     Es una ilustración con supuestos constantes, no una predicción.
+         */
+        get: operations["getSnowballProjection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/fx-rates": {
         parameters: {
             query?: never;
@@ -872,6 +956,10 @@ export interface components {
             marketPrice?: components["schemas"]["Decimal"] | null;
             /** Format: date-time */
             priceAsOf?: string | null;
+            /** @description (v0.5) Fecha de negocio del precio */
+            priceDate: components["schemas"]["Date"] | null;
+            /** @description (v0.5) true si es una cotización intradía (mostrar hora); false si es un cierre o manual */
+            priceIsIntraday: boolean;
             /** @enum {string|null} */
             priceSource?: "PROVIDER" | "MANUAL" | null;
             /** @description quantity × marketPrice */
@@ -928,6 +1016,8 @@ export interface components {
             unrealizedGain: components["schemas"]["Decimal"] | null;
         };
         Quote: {
+            /** @description (v0.5) Fecha de negocio del precio en la zona del mercado */
+            date: components["schemas"]["Date"];
             price: components["schemas"]["Decimal"];
             currency: components["schemas"]["Currency"];
             /**
@@ -954,6 +1044,47 @@ export interface components {
             realizedGainCumulative: components["schemas"]["Decimal"];
             /** @description Parte de marketValue valorizada al costo por falta de precio (0 si todo tiene precio) */
             unpricedAtCost: components["schemas"]["Decimal"];
+            /** @description (v0.5) marketValue + cash */
+            netWorth: components["schemas"]["Decimal"];
+            /** @description (v0.5) netWorth − contributedCapital */
+            totalGain: components["schemas"]["Decimal"];
+        };
+        SnowballProjection: {
+            reportingCurrency: components["schemas"]["Currency"];
+            /** @description Valores efectivamente usados (incluye los defaults calculados) */
+            assumptions: {
+                years: number;
+                monthlyContribution: components["schemas"]["Decimal"];
+                contributionGrowth: components["schemas"]["Decimal"];
+                reinvestDividends: boolean;
+                dividendGrowth: components["schemas"]["Decimal"];
+                priceGrowth: components["schemas"]["Decimal"];
+                /** @description Yield neto inicial */
+                startYield: components["schemas"]["Decimal"];
+            };
+            start: {
+                netWorth: components["schemas"]["Decimal"];
+                annualDividendsNet: components["schemas"]["Decimal"];
+            };
+            /** @description Un punto por año (al cierre de cada año de proyección) */
+            years: {
+                /** @description 1..years */
+                year: number;
+                calendarYear: number;
+                /** @description Aportes nuevos acumulados (sin el patrimonio inicial) */
+                contributedCumulative: components["schemas"]["Decimal"];
+                /** @description Incluye dividendos acumulados no reinvertidos */
+                netWorth: components["schemas"]["Decimal"];
+                /** @description Dividendos netos de ese año */
+                annualDividendsNet: components["schemas"]["Decimal"];
+                /** @description annualDividendsNet / 12 */
+                monthlyDividendsNet: components["schemas"]["Decimal"];
+                dividendsCumulative: components["schemas"]["Decimal"];
+                /** @description monthlyDividendsNet / meta mensual (TC actual); null sin meta */
+                goalCoverage: components["schemas"]["Decimal"] | null;
+            }[];
+            /** @description Primer calendarYear con goalCoverage >= 1; null si no se alcanza o no hay meta */
+            goalReachedYear: number | null;
         };
         /**
          * @description Currency + CLF (Unidad de Fomento), sólo para tipos de cambio
@@ -976,6 +1107,8 @@ export interface components {
         Preferences: {
             /** @description Default USD */
             reportingCurrency: components["schemas"]["Currency"];
+            /** @description (v0.5) P2: gasto mensual objetivo, en la moneda que el usuario elija */
+            monthlyIncomeGoal: components["schemas"]["Money"] | null;
         };
         PortfolioSummary: {
             reportingCurrency: components["schemas"]["Currency"];
@@ -1011,6 +1144,8 @@ export interface components {
              * @description Cotización más antigua usada (para mostrar "precios al …")
              */
             pricesAsOf: string | null;
+            /** @description (v0.5) Fecha de negocio de la cotización más antigua usada */
+            pricesDate: components["schemas"]["Date"] | null;
             dividends: {
                 netYearToDate: components["schemas"]["Decimal"];
                 netLast12Months: components["schemas"]["Decimal"];
@@ -1019,6 +1154,19 @@ export interface components {
                 expectedAnnualGross: components["schemas"]["Decimal"];
                 /** @description (v0.4) expectedAnnualGross / marketValue */
                 currentYield?: components["schemas"]["Decimal"] | null;
+                /** @description (v0.5) Σ cantidad × dividendo anual por acción × (1 − retención efectiva), a TC actual */
+                expectedAnnualNet: components["schemas"]["Decimal"];
+            };
+            /** @description (v0.5) P2. null si el usuario no definió meta. */
+            incomeGoal: null | {
+                /** @description Tal como la definió el usuario */
+                goal: components["schemas"]["Money"];
+                /** @description Meta mensual convertida a la moneda de reporte con TC actual */
+                monthlyGoalReporting: components["schemas"]["Decimal"];
+                /** @description (netLast12Months / 12) / monthlyGoalReporting, fracción (puede ser > 1) */
+                coverageLast12Months: components["schemas"]["Decimal"];
+                /** @description (expectedAnnualNet / 12) / monthlyGoalReporting */
+                coverageExpected: components["schemas"]["Decimal"];
             };
             /** @description Distribución por moneda de (costo vigente a TC actual + caja); suma 1 */
             exposure: {
@@ -2191,6 +2339,188 @@ export interface operations {
             422: components["responses"]["BusinessRule"];
         };
     };
+    getDividendsMonthly: {
+        parameters: {
+            query?: {
+                /** @description Default la preferencia del usuario */
+                reportingCurrency?: components["parameters"]["ReportingCurrency"];
+                /** @description YYYY-MM; default el mes del primer dividendo */
+                from?: string;
+                /** @description YYYY-MM; default el mes actual + 3 (para ver anunciados) */
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Serie mensual y totales anuales */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reportingCurrency: components["schemas"]["Currency"];
+                        months: {
+                            /** @example 2026-10 */
+                            month: string;
+                            paidNet: components["schemas"]["Decimal"];
+                            paidGross: components["schemas"]["Decimal"];
+                            announcedNet: components["schemas"]["Decimal"];
+                            /** @description Acumulado desde el primer dividendo */
+                            cumulativePaidNet: components["schemas"]["Decimal"];
+                        }[];
+                        years: {
+                            year: number;
+                            paidNet: components["schemas"]["Decimal"];
+                            paidGross: components["schemas"]["Decimal"];
+                            /** @description Retención en origen del año (útil para el crédito por impuesto extranjero) */
+                            withholding: components["schemas"]["Decimal"];
+                            /** @description paidNet / paidNet del año anterior − 1; null el primer año. El año en curso compara contra el mismo período (YTD) del año anterior. */
+                            growth: components["schemas"]["Decimal"] | null;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    getDividendCalendar: {
+        parameters: {
+            query?: {
+                /** @description Default la preferencia del usuario */
+                reportingCurrency?: components["parameters"]["ReportingCurrency"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Meses desde el actual, 12 en total */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reportingCurrency: components["schemas"]["Currency"];
+                        /** @description Ingreso neto esperado en los 12 meses (reporte) */
+                        totalNet: components["schemas"]["Decimal"];
+                        months: {
+                            /** @example 2026-11 */
+                            month: string;
+                            totalNet: components["schemas"]["Decimal"];
+                            /** @description (v0.5) Suma de ítems ANNOUNCED del mes (reporte) */
+                            announcedNet: components["schemas"]["Decimal"];
+                            /** @description (v0.5) Suma de ítems ESTIMATED del mes (reporte) */
+                            estimatedNet: components["schemas"]["Decimal"];
+                            items: {
+                                /** Format: uuid */
+                                instrumentId: string;
+                                symbol: string;
+                                /** @enum {string} */
+                                status: "ANNOUNCED" | "ESTIMATED";
+                                /** @description Fecha de pago (estimada = misma fecha del año anterior) */
+                                date: components["schemas"]["Date"];
+                                currency: components["schemas"]["Currency"];
+                                netAmount: components["schemas"]["Decimal"];
+                                netAmountReporting: components["schemas"]["Decimal"];
+                            }[];
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    getPortfolioAllocation: {
+        parameters: {
+            query: {
+                by: "instrument" | "sector" | "market" | "currency" | "account" | "type";
+                /** @description Si hay más grupos que limit, devuelve los primeros limit y un ítem final agregado con key "__others" y label "Otros (N)" */
+                limit?: number;
+                /** @description Default la preferencia del usuario */
+                reportingCurrency?: components["parameters"]["ReportingCurrency"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grupos ordenados por valor descendente; posiciones sin precio van a su costo y se marcan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        by: string;
+                        reportingCurrency: components["schemas"]["Currency"];
+                        total: components["schemas"]["Decimal"];
+                        items: {
+                            key: string;
+                            /** @description Ej. "Energy", "Bolsa de Santiago", "USD", "Sin sector" */
+                            label: string;
+                            value: components["schemas"]["Decimal"];
+                            /** @description Fracción 0–1 del valor */
+                            weight: components["schemas"]["Decimal"];
+                            expectedAnnualIncomeGross: components["schemas"]["Decimal"];
+                            /** @description Fracción 0–1 del ingreso esperado (concentración de la renta) */
+                            incomeWeight: components["schemas"]["Decimal"];
+                            /** @description Parte valorizada al costo por falta de precio */
+                            valuedAtCost: components["schemas"]["Decimal"];
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    getSnowballProjection: {
+        parameters: {
+            query?: {
+                /** @description Default la preferencia del usuario */
+                reportingCurrency?: components["parameters"]["ReportingCurrency"];
+                years?: number;
+                /** @description En moneda de reporte, >= 0. Default: promedio mensual de DEPOSIT − WITHDRAWAL de los últimos 12 meses (excluye los de source IMPORT tipo "no asignado") */
+                monthlyContribution?: components["schemas"]["Decimal"];
+                /** @description Fracción anual, default "0" */
+                contributionGrowth?: components["schemas"]["Decimal"];
+                reinvestDividends?: boolean;
+                /** @description Fracción anual (-0.5 a 0.5), default "0.05" */
+                dividendGrowth?: components["schemas"]["Decimal"];
+                /** @description Fracción anual (-0.5 a 0.5), default "0.04" */
+                priceGrowth?: components["schemas"]["Decimal"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Proyección anual */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnowballProjection"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["BusinessRule"];
+        };
+    };
     listFxRates: {
         parameters: {
             query: {
@@ -2279,6 +2609,8 @@ export interface operations {
             content: {
                 "application/json": {
                     reportingCurrency?: components["schemas"]["Currency"];
+                    /** @description (v0.5) Gasto mensual objetivo a cubrir con dividendos; null lo elimina. amount > 0. */
+                    monthlyIncomeGoal?: components["schemas"]["Money"] | null;
                 };
             };
         };

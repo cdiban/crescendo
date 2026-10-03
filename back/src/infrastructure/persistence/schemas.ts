@@ -9,6 +9,8 @@ export type UserRecord = {
   passwordHash: string;
   createdAt: Date;
   reportingCurrency: string;
+  monthlyIncomeGoalAmount: string | null;
+  monthlyIncomeGoalCurrency: string | null;
 };
 
 export type SessionRecord = {
@@ -27,6 +29,8 @@ export const UserSchema = new EntitySchema<UserRecord>({
     passwordHash: { type: 'text', name: 'password_hash' },
     createdAt: { type: 'timestamptz', name: 'created_at' },
     reportingCurrency: { type: 'char', length: 3, name: 'reporting_currency' },
+    monthlyIncomeGoalAmount: { type: 'numeric', precision: 20, scale: 4, nullable: true, name: 'monthly_income_goal_amount' },
+    monthlyIncomeGoalCurrency: { type: 'char', length: 3, nullable: true, name: 'monthly_income_goal_currency' },
   },
 });
 

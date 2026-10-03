@@ -1,4 +1,4 @@
-import type { Currency } from './currency.ts';
+import type { Currency, Money } from './currency.ts';
 import type { Email } from './email.ts';
 
 export const DEFAULT_REPORTING_CURRENCY: Currency = 'USD';
@@ -10,6 +10,8 @@ export type User = {
   readonly createdAt: Date;
   /** Moneda en que se reportan los consolidados. */
   readonly reportingCurrency: Currency;
+  /** P2: gasto mensual objetivo a cubrir con dividendos; null = sin meta. */
+  readonly monthlyIncomeGoal: Money | null;
 };
 
 export type NewUser = Omit<User, 'id'>;

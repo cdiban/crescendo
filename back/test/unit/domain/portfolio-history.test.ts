@@ -46,6 +46,10 @@ describe('computePortfolioHistory (caso a mano, reporte CLP)', () => {
   test('usa el último cierre en o antes de la fecha; dividendo acumulado', () => {
     assert.deepEqual(show(2), ['2025-02-15', '540000', '450000', '454500', '900000', '4500', '0', '0']);
   });
+  test('netWorth = valor + caja y totalGain = netWorth − aportado (el front no suma montos)', () => {
+    const p = points[3]!;
+    assert.deepEqual([p.netWorth.toString(), p.totalGain.toString()], ['1055000', '155000']);
+  });
   test('venta parcial con TC nuevo: costo descargado a promedio en reporte, ganancia realizada acumulada', () => {
     // vende 4 → 220 USD × 1000 = 220000; descarga 450000 × 4/10 = 180000 → realizada 40000
     assert.deepEqual(show(3), ['2025-03-05', '330000', '270000', '725000', '900000', '4500', '40000', '0']);

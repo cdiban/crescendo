@@ -31,9 +31,14 @@ export class InMemoryUserRepository implements UserRepository {
     return user;
   }
 
-  async updateReportingCurrency(id: string, currency: Currency): Promise<void> {
+  async updatePreferences(id: string, changes: { reportingCurrency?: Currency | undefined; monthlyIncomeGoal?: User['monthlyIncomeGoal'] | undefined }): Promise<void> {
     const user = this.users.get(id);
-    if (user) this.users.set(id, { ...user, reportingCurrency: currency });
+    if (!user) return;
+    this.users.set(id, {
+      ...user,
+      ...(changes.reportingCurrency ? { reportingCurrency: changes.reportingCurrency } : {}),
+      ...(changes.monthlyIncomeGoal !== undefined ? { monthlyIncomeGoal: changes.monthlyIncomeGoal } : {}),
+    });
   }
 }
 

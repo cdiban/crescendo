@@ -56,6 +56,16 @@ export type InstrumentPriceQuery = Query<'listInstrumentPrices'>;
 export type PortfolioHistoryQuery = Query<'getPortfolioHistory'>;
 export type PortfolioHistory = Json<'getPortfolioHistory', 200>;
 export type PortfolioHistoryPoint = Schemas['PortfolioHistoryPoint'];
+export type DividendsMonthlyQuery = Query<'getDividendsMonthly'>;
+export type DividendsMonthly = Json<'getDividendsMonthly', 200>;
+export type DividendCalendarQuery = Query<'getDividendCalendar'>;
+export type DividendCalendar = Json<'getDividendCalendar', 200>;
+export type AllocationQuery = Query<'getPortfolioAllocation'>;
+export type AllocationDimension = AllocationQuery['by'];
+export type Allocation = Json<'getPortfolioAllocation', 200>;
+export type SnowballQuery = Query<'getSnowballProjection'>;
+export type SnowballProjection = Schemas['SnowballProjection'];
+export type Money = Schemas['Money'];
 export type TradeQuery = Query<'listTrades'>;
 export type DividendQuery = Query<'listDividends'>;
 export type DividendSummaryQuery = Query<'getDividendSummary'>;
@@ -173,6 +183,10 @@ export function createApi(options: ApiOptions = {}) {
     // ── Dividendos ──
     listDividends: async (query: DividendQuery = {}) =>
       (await request('GET', '/dividends', undefined, query)) as Json<'listDividends', 200>,
+    getDividendsMonthly: async (query: DividendsMonthlyQuery = {}) =>
+      (await request('GET', '/dividends/monthly', undefined, query)) as DividendsMonthly,
+    getDividendCalendar: async (query: DividendCalendarQuery = {}) =>
+      (await request('GET', '/dividends/calendar', undefined, query)) as DividendCalendar,
     getDividendSummary: async (query: DividendSummaryQuery) =>
       (await request('GET', '/dividends/summary', undefined, query)) as DividendSummary,
     createDividend: async (body: DividendInput) => (await request('POST', '/dividends', body)) as Dividend,
@@ -199,6 +213,11 @@ export function createApi(options: ApiOptions = {}) {
     listPositions: async (query: PositionQuery = {}) => (await request('GET', '/positions', undefined, query)) as PositionList,
     getPortfolioSummary: async (query: PortfolioSummaryQuery = {}) =>
       (await request('GET', '/portfolio/summary', undefined, query)) as PortfolioSummary,
+    getPortfolioAllocation: async (query: AllocationQuery) =>
+      (await request('GET', '/portfolio/allocation', undefined, query)) as Allocation,
+    /** P1: proyección "bola de nieve" (cálculo en el servidor; los parámetros omitidos usan los defaults). */
+    getSnowballProjection: async (query: SnowballQuery = {}) =>
+      (await request('GET', '/projections/snowball', undefined, query)) as SnowballProjection,
     /** Serie histórica del portafolio (base de los gráficos de la Fase 4). */
     getPortfolioHistory: async (query: PortfolioHistoryQuery = {}) =>
       (await request('GET', '/portfolio/history', undefined, query)) as PortfolioHistory,

@@ -1,12 +1,12 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import { Plus, Search } from 'lucide-react';
 import type { Account, Api, Currency, Instrument, InstrumentType, Market } from '../../api/client.ts';
 import { InputError } from '../../api/errors.ts';
 import { DataTable, Pager } from '../../components/DataTable.tsx';
 import { FormField, FormGrid } from '../../components/form.tsx';
 import { ConfirmDialog, Modal } from '../../components/Modal.tsx';
-import { Badge, ErrorAlert, PageHeader } from '../../components/ui.tsx';
-import { formatDateTime, formatMoney, formatPercent, formatUnitPrice, fractionToPercent, normalizeDecimal, percentToFraction } from '../../lib/format.ts';
+import { Badge, ErrorAlert, PageHeader, Success } from '../../components/ui.tsx';
+import { formatDate, formatMoney, parseAmountInput, formatPercent, formatUnitPrice, fractionToPercent, normalizeDecimal, percentToFraction } from '../../lib/format.ts';
 import { CURRENCIES, INSTRUMENT_TYPE } from '../../lib/labels.ts';
 import { today, useAsync } from '../../lib/useAsync.ts';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ export function SettingsScreen({ api }: { api: Api }) {
         <TabsList>
           <TabsTrigger value="accounts">Cuentas</TabsTrigger>
           <TabsTrigger value="instruments">Instrumentos</TabsTrigger>
+          <TabsTrigger value="goal">Meta de ingreso</TabsTrigger>
         </TabsList>
         <TabsContent value="accounts" className="flex min-h-0 flex-1 flex-col gap-3">
           <AccountsSection api={api} />
@@ -33,8 +34,108 @@ export function SettingsScreen({ api }: { api: Api }) {
         <TabsContent value="instruments" className="flex min-h-0 flex-1 flex-col gap-3">
           <InstrumentsSection api={api} />
         </TabsContent>
+        <TabsContent value="goal" className="min-h-0 flex-1 overflow-auto">
+          <IncomeGoalSection api={api} />
+        </TabsContent>
       </Tabs>
     </>
+  );
+}
+
+// ── Meta de ingreso pasivo (P2) ──
+
+function IncomeGoalSection({ api }: { api: Api }) {
+  const prefs = useAsync(() => api.getPreferences(), [api]);
+  const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState<Currency>('CLP');
+  const [hasGoal, setHasGoal] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const goal = prefs.data?.monthlyIncomeGoal;
+    if (prefs.data === undefined) return;
+    setHasGoal(!!goal);
+    setAmount(goal?.amount ?? '');
+    if (goal) setCurrency(goal.currency);
+  }, [prefs.data]);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = parseAmountInput(amount);
+    if (!value || value.startsWith('-') || !/[1-9]/.test(value)) {
+      setError('El monto mensual debe ser mayor que 0.');
+      return;
+    }
+    await run(async () => {
+      const saved = await api.updatePreferences({ monthlyIncomeGoal: { amount: value, currency } });
+      const goal = saved.monthlyIncomeGoal;
+      setHasGoal(!!goal);
+      if (goal) setAmount(goal.amount);
+      setMessage(goal ? `Meta guardada: ${formatMoney(goal.amount, goal.currency)} al mes.` : 'Meta guardada.');
+    });
+  }
+
+  async function remove() {
+    await run(async () => {
+      await api.updatePreferences({ monthlyIncomeGoal: null });
+      setHasGoal(false);
+      setAmount('');
+      setMessage('Meta eliminada.');
+    });
+  }
+
+  async function run(action: () => Promise<void>) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="grid max-w-xl gap-4" aria-label="Meta de ingreso pasivo" onSubmit={save} noValidate>
+      <div className="grid gap-1">
+        <h2 className="font-heading text-base font-semibold">Meta de ingreso pasivo</h2>
+        <p className="text-sm text-muted-foreground">
+          Tu gasto mensual objetivo. El Resumen muestra qué parte cubren hoy tus dividendos y la Proyección en qué año llegarías a
+          cubrirla. Cambiar la moneda de reporte no cambia la meta.
+        </p>
+      </div>
+      <ErrorAlert error={prefs.error} />
+      <FormGrid className="lg:grid-cols-2">
+        <FormField label="Monto mensual" htmlFor="goal-amount">
+          <Input id="goal-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={!prefs.data} />
+        </FormField>
+        <FormField label="Moneda" htmlFor="goal-currency">
+          <NativeSelect id="goal-currency" className="w-full" value={currency} onChange={(e) => setCurrency(e.target.value as Currency)}>
+            {CURRENCIES.map((c) => (
+              <NativeSelectOption key={c} value={c}>
+                {c}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </FormField>
+      </FormGrid>
+      <ErrorAlert error={error} />
+      {message && <Success>{message}</Success>}
+      <div className="flex flex-wrap justify-end gap-2">
+        {hasGoal && (
+          <Button type="button" variant="outline" onClick={remove} disabled={busy}>
+            Quitar meta
+          </Button>
+        )}
+        <Button type="submit" disabled={busy || !prefs.data}>
+          {busy ? 'Guardando…' : 'Guardar meta'}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -289,7 +390,7 @@ function InstrumentsSection({ api }: { api: Api }) {
                     <>
                       <span className="block">{formatUnitPrice(i.lastPrice.price, i.lastPrice.currency)}</span>
                       <span className="block text-xs text-muted-foreground">
-                        {formatDateTime(i.lastPrice.asOf)} · {i.lastPrice.source === 'MANUAL' ? 'Manual' : 'Proveedor'}
+                        {formatDate(i.lastPrice.date)} · {i.lastPrice.source === 'MANUAL' ? 'Manual' : 'Proveedor'}
                       </span>
                     </>
                   ) : (
@@ -445,7 +546,7 @@ function ManualPriceDialog({ api, instrument, onClose, onSaved }: { api: Api; in
       </p>
       {instrument.lastPrice && (
         <p className="text-muted-foreground">
-          Última cotización: {formatUnitPrice(instrument.lastPrice.price, instrument.lastPrice.currency)} ({formatDateTime(instrument.lastPrice.asOf)},{' '}
+          Última cotización: {formatUnitPrice(instrument.lastPrice.price, instrument.lastPrice.currency)} ({formatDate(instrument.lastPrice.date)},{' '}
           {instrument.lastPrice.source === 'MANUAL' ? 'manual' : 'proveedor'})
         </p>
       )}

@@ -1,15 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
-import { act, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { SummaryScreen } from './SummaryScreen.tsx';
 import { createApi } from '../api/client.ts';
 import { calls, mockFetch, problem } from '../test/http.ts';
-import { latestFx, portfolioSummary } from '../test/fixtures.ts';
+import { dividendsMonthly, history, incomeGoal, latestFx, portfolioSummary } from '../test/fixtures.ts';
 
 const text = (el: HTMLElement) => (el.textContent ?? '').replace(/ /g, ' ');
 const card = (name: string) => screen.getByRole('region', { name });
 const routes = (summary = portfolioSummary()) => [
   { method: 'GET', path: '/api/v1/portfolio/summary', status: 200, body: summary },
   { method: 'GET', path: '/api/v1/fx-rates/latest', status: 200, body: { items: latestFx } },
+  { method: 'GET', path: '/api/v1/portfolio/history', status: 200, body: history },
+  { method: 'GET', path: '/api/v1/dividends/monthly', status: 200, body: dividendsMonthly },
 ];
 
 describe('SummaryScreen', () => {
@@ -19,7 +21,8 @@ describe('SummaryScreen', () => {
 
     await screen.findByRole('region', { name: 'Capital aportado' });
     expect(calls(fetchMock)).toContain('GET /api/v1/portfolio/summary?reportingCurrency=USD');
-    expect(text(screen.getByText(/Datos al/))).toMatch(/^Datos al 03-10-2026 · precios al 03-10-2026 \d\d:\d\d · tipos de cambio al 02-10-2026 · en USD$/);
+    // pricesDate es la fecha de negocio (sin hora): no se infiere desde un timestamp.
+    expect(text(screen.getByText(/Datos al/))).toBe('Datos al 03-10-2026 · precios al 02-10-2026 · tipos de cambio al 02-10-2026 · en USD');
 
     expect(text(card('Capital aportado'))).toMatch(/US\$61\.234,57/);
     expect(text(card('Costo invertido'))).toMatch(/US\$62\.000,12.*A TC actualUS\$60\.500,50/);
@@ -45,7 +48,7 @@ describe('SummaryScreen', () => {
     render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
     const div = await screen.findByRole('region', { name: 'Dividendos' });
     expect(text(div)).toMatch(/Yield actual4,84%/);
-    expect(text(screen.getByText(/Datos al/))).toMatch(/precios al 03-10-2026/);
+    expect(text(screen.getByText(/Datos al/))).toMatch(/precios al 02-10-2026/);
   });
 
   it('avisa si no todas las posiciones tienen precio', async () => {
@@ -161,9 +164,108 @@ describe('SummaryScreen', () => {
   });
 
   it('si faltan tipos de cambio muestra el mensaje de FX_RATE_UNAVAILABLE y aun así los tipos vigentes', async () => {
-    mockFetch([{ method: 'GET', path: '/api/v1/portfolio/summary', ...problem(422, 'FX_RATE_UNAVAILABLE') }, routes()[1]!]);
+    mockFetch([{ method: 'GET', path: '/api/v1/portfolio/summary', ...problem(422, 'FX_RATE_UNAVAILABLE') }, ...routes().slice(1)]);
     render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
     expect((await screen.findByRole('alert')).textContent).toBe('Aún no hay tipos de cambio cargados para esa fecha.');
     expect(await screen.findByRole('region', { name: 'Tabla de tipos de cambio' })).toBeTruthy();
+  });
+});
+
+describe('SummaryScreen — dashboard', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-03T12:00:00'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('tarjeta "Meta de ingreso" con la meta mensual y la cobertura de 12 meses y esperada', async () => {
+    mockFetch(routes(portfolioSummary({ incomeGoal })));
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+
+    const goal = await screen.findByRole('region', { name: 'Meta de ingreso' });
+    expect(goal.querySelector('[data-slot=stat-value]')!.textContent!.replace(/\u00a0/g, ' ')).toBe('US$500,00 al mes');
+    expect(within(goal).getAllByRole('term').map((t) => t.textContent)).toEqual(['Últimos 12 meses', 'Esperado']);
+    expect(within(goal).getAllByRole('definition').map((d) => d.textContent)).toEqual(['51,28%', '67,88%']);
+    const meters = within(goal).getAllByRole('meter');
+    expect(meters.map((m) => m.getAttribute('aria-valuenow'))).toEqual(['0.5128', '0.6788']);
+  });
+
+  it('una cobertura mayor a 100 % llena la barra y marca la meta como cubierta', async () => {
+    mockFetch(routes(portfolioSummary({ incomeGoal: { ...incomeGoal, coverageExpected: '1.183512' } })));
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    const goal = await screen.findByRole('region', { name: 'Meta de ingreso' });
+    expect(within(goal).getAllByRole('definition')[1]!.textContent).toBe('118,35%');
+    const expected = within(goal).getByRole('meter', { name: 'Cobertura esperada' });
+    expect(expected.getAttribute('aria-valuenow')).toBe('1.183512');
+    expect(within(goal).getAllByLabelText('Meta cubierta')).toHaveLength(1);
+  });
+
+    it('sin meta invita a definirla en Configuración', async () => {
+    mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    const goal = await screen.findByRole('region', { name: 'Meta de ingreso' });
+    expect(goal.textContent).toMatch(/Define cuánto quieres cubrir al mes con dividendos/);
+    expect(within(goal).getByRole('link', { name: 'Definir meta' }).getAttribute('href')).toBe('/configuracion');
+  });
+
+  it('patrimonio vs capital aportado: resumen textual, tabla y periodo 6M por defecto (diario)', async () => {
+    const fetchMock = mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+
+    const figure = await screen.findByRole('figure', { name: 'Patrimonio vs capital aportado' });
+    await vi.waitFor(() => expect(text(figure)).toMatch(/Al 03-10-2026: patrimonio US\$73\.137,62, aportado US\$60\.436,52, ganancia US\$12\.701,10/));
+    expect(calls(fetchMock)).toContain('GET /api/v1/portfolio/history?reportingCurrency=USD&from=2026-04-03&interval=day');
+    expect(within(figure).getByRole('button', { name: '6M' }).getAttribute('aria-pressed')).toBe('true');
+    const rows = within(within(figure).getByRole('table', { name: 'Patrimonio vs capital aportado (datos)' })).getAllByRole('row');
+    expect(text(rows.at(-1)!)).toBe('03-10-2026US$73.137,62US$60.436,52US$12.701,10US$4.194,05');
+  });
+
+  it('cambiar el periodo vuelve a pedir la historia con el intervalo adecuado', async () => {
+    const fetchMock = mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    const figure = await screen.findByRole('figure', { name: 'Patrimonio vs capital aportado' });
+
+    fireEvent.click(within(figure).getByRole('button', { name: '1A' }));
+    await vi.waitFor(() => expect(calls(fetchMock)).toContain('GET /api/v1/portfolio/history?reportingCurrency=USD&from=2025-10-03&interval=week'));
+    fireEvent.click(within(figure).getByRole('button', { name: 'Año actual' }));
+    await vi.waitFor(() => expect(calls(fetchMock)).toContain('GET /api/v1/portfolio/history?reportingCurrency=USD&from=2026-01-01&interval=week'));
+    fireEvent.click(within(figure).getByRole('button', { name: 'Todo' }));
+    await vi.waitFor(() => expect(calls(fetchMock)).toContain('GET /api/v1/portfolio/history?reportingCurrency=USD&interval=week'));
+    expect(within(figure).getByRole('button', { name: 'Todo' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('permite mostrar los dividendos acumulados', async () => {
+    mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    const figure = await screen.findByRole('figure', { name: 'Patrimonio vs capital aportado' });
+    const toggle = within(figure).getByLabelText('Mostrar dividendos acumulados') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+    expect(toggle.checked).toBe(true);
+  });
+
+  it('dividendos por mes: 24 meses atrás más próximos, con anunciados y acumulado en la tabla', async () => {
+    const fetchMock = mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    const figure = await screen.findByRole('figure', { name: 'Dividendos por mes' });
+    expect(calls(fetchMock)).toContain('GET /api/v1/dividends/monthly?reportingCurrency=USD&from=2024-11');
+    await vi.waitFor(() => expect(text(figure)).toMatch(/Cobrado acumulado US\$4\.194,05 · anunciados en los próximos meses: US\$312,40 en octubre 2026, US\$15,02 en noviembre 2026/));
+    const rows = within(within(figure).getByRole('table', { name: 'Dividendos por mes (datos)' })).getAllByRole('row');
+    expect(rows.slice(1).map(text)).toEqual([
+      'agosto 2026US$257,11US$280,20—US$3.911,05',
+      'septiembre 2026US$283,07US$301,40—US$4.194,05',
+      'octubre 2026——US$312,40US$4.194,05',
+      'noviembre 2026——US$15,02US$4.194,05',
+    ]);
+  });
+
+  it('crecimiento anual de dividendos: neto, bruto, retención y crecimiento (el año en curso, a la misma fecha)', async () => {
+    mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    const table = await screen.findByRole('table', { name: 'Crecimiento anual de dividendos' });
+    await vi.waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(3));
+    const rows = within(table).getAllByRole('row').slice(1).map(text);
+    expect(rows).toEqual(['2026 (a la fecha)US$2.312,59US$2.470,10US$157,51+41,23%', '2025US$1.881,48US$2.010,20US$128,72—']);
+    expect(within(table).getByText('+41,23%').dataset.tone).toBe('positive');
   });
 });
