@@ -48,7 +48,10 @@ export function ChartFigure({ title, summary, actions, table, loading, empty, cl
         {table && !loading && !empty && (
           <details className="group text-sm">
             <summary className="cursor-pointer text-xs text-muted-foreground select-none hover:text-foreground">Ver datos en tabla</summary>
-            <div className="mt-2 max-h-72 overflow-auto rounded-lg border">{table}</div>
+            {/* Alto natural: la tabla no tiene scroll vertical propio (la rueda sigue moviendo la página); sí horizontal. */}
+            <div data-slot="chart-table" className="mt-2 rounded-lg border [&_[data-slot=table-container]]:overflow-y-hidden">
+              {table}
+            </div>
           </details>
         )}
       </CardContent>

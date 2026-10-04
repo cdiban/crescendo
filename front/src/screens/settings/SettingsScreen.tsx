@@ -232,7 +232,7 @@ function AccountsSection({ api }: { api: Api }) {
       {accounts.error ? (
         <ErrorAlert error={accounts.error} />
       ) : (
-        <DataTable label="Lista de cuentas" fill loading={!accounts.data}>
+        <DataTable scroll="contained" label="Lista de cuentas" fill loading={!accounts.data}>
           <TableHeader>
             <TableRow>
               <TableHead scope="col">Nombre</TableHead>
@@ -414,6 +414,7 @@ function InstrumentsSection({ api }: { api: Api }) {
         <ErrorAlert error={instruments.error} />
       ) : (
         <DataTable
+          scroll="contained"
           label="Lista de instrumentos"
           fill
           loading={!instruments.data}

@@ -93,7 +93,7 @@ export function CashScreen({ api }: { api: Api }) {
         {accounts.error ? (
           <ErrorAlert error={accounts.error} />
         ) : (
-          <DataTable label="Saldos de caja" loading={!accounts.data} className="max-h-48 max-w-2xl">
+          <DataTable scroll="page" label="Saldos de caja" loading={!accounts.data} className="max-w-2xl">
             <TableHeader>
               <TableRow>
                 <TableHead scope="col">Cuenta</TableHead>
@@ -175,6 +175,7 @@ export function CashScreen({ api }: { api: Api }) {
           <ErrorAlert error={movements.error} />
         ) : (
           <DataTable
+            scroll="contained"
             label="Movimientos de caja"
             fill
             loading={!movements.data}

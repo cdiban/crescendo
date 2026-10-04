@@ -92,8 +92,8 @@ export function DividendPerShareSection({ api }: { api: Api }) {
       <ErrorAlert error={perShare.error} />
       {!perShare.error && (
         <DataTable
+          scroll="page"
           label="Tabla de dividendo por acción"
-          className="max-h-[36rem]"
           loading={!data}
           isEmpty={!!data && items.length === 0}
           empty={alertsOnly ? 'Sin alertas: ningún instrumento con recorte, suspensión o baja leve.' : 'No hay posiciones abiertas.'}

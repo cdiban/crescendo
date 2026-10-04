@@ -36,3 +36,16 @@ describe('ChartFigure', () => {
     expect(screen.queryByTestId('grafico')).toBeNull();
   });
 });
+
+describe('ChartFigure — tabla alternativa', () => {
+  it('no tiene scroll vertical propio (alto natural): la rueda sigue moviendo la página', () => {
+    render(
+      <ChartFigure title="T" table={<table><tbody><tr><td>x</td></tr></tbody></table>}>
+        <p>gráfico</p>
+      </ChartFigure>,
+    );
+    const wrapper = document.querySelector('[data-slot=chart-table]')!;
+    expect(wrapper.className).not.toMatch(/max-h-|overflow-auto/);
+    expect(wrapper.className).toMatch(/overflow-y-hidden/);
+  });
+});

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -7,6 +7,13 @@ import { cn } from '@/lib/utils';
 type DataTableProps = {
   /** Nombre accesible de la región con scroll. */
   label: string;
+  /**
+   * "contained": la grilla tiene scroll vertical propio (vista de una sola grilla grande: la página no crece y la paginación
+   * queda visible). "page": alto natural y sin scroll vertical propio, para vistas que apilan varias grillas o bloques: la rueda
+   * mueve el área de contenido y el encabezado se mantiene pegado a su tope. Ambas conservan el scroll horizontal y la primera
+   * columna fija.
+   */
+  scroll: 'contained' | 'page';
   children: ReactNode;
   /** Paginación u otros controles: quedan fuera del scroll, siempre visibles. */
   footer?: ReactNode;
@@ -23,7 +30,9 @@ type DataTableProps = {
  * para que la página no crezca con la cantidad de filas.
  * Los hijos son TableHeader/TableBody/TableFooter de "@/components/ui/table".
  */
-export function DataTable({ label, children, footer, fill, isEmpty, empty, loading, className }: DataTableProps) {
+export function DataTable({ label, scroll, children, footer, fill, isEmpty, empty, loading, className }: DataTableProps) {
+  const region = useRef<HTMLDivElement>(null);
+  useStickyHead(region, scroll === 'page');
   return (
     <div
       className={cn(
@@ -33,16 +42,22 @@ export function DataTable({ label, children, footer, fill, isEmpty, empty, loadi
       )}
     >
       <div
+        ref={region}
         role="region"
         aria-label={label}
+        data-scroll={scroll}
         aria-busy={loading || undefined}
         tabIndex={0}
         data-sticky-header="true"
         data-sticky-first-column="true"
         data-cell-align="baseline"
         className={cn(
-          'relative min-h-0 flex-1 overflow-auto overscroll-contain outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
-          // Encabezado y pie fijos al desplazar en vertical.
+          'relative outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+          scroll === 'contained'
+            ? 'min-h-0 flex-1 overflow-auto overscroll-contain'
+            : // Sin scroll vertical propio (hidden no lo vuelve desplazable): la rueda pasa directo al área de contenido.
+              'overflow-x-auto overflow-y-hidden overscroll-x-contain [&_thead_th]:translate-y-(--sticky-head)',
+          // Encabezado y pie fijos al desplazar en vertical ("page": el desplazamiento lo calcula useStickyHead).
           '[&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-20 [&_thead_th]:bg-muted',
           '[&_tfoot_td]:sticky [&_tfoot_td]:bottom-0 [&_tfoot_td]:z-20 [&_tfoot_td]:bg-muted [&_tfoot_th]:sticky [&_tfoot_th]:bottom-0 [&_tfoot_th]:z-20 [&_tfoot_th]:bg-muted',
           // Primera columna (símbolo/fecha) fija al desplazar en horizontal; fondo opaco para tapar lo que pasa por debajo.
@@ -71,6 +86,55 @@ export function DataTable({ label, children, footer, fill, isEmpty, empty, loadi
       {footer && <div className="flex shrink-0 items-center justify-end gap-2 border-t px-3 py-2">{footer}</div>}
     </div>
   );
+}
+
+/**
+ * Desplazamiento del encabezado para que quede en el tope del área de contenido mientras la grilla lo cruza,
+ * sin salirse de la grilla (al final queda sobre la última fila).
+ */
+export function stickyHeadOffset(scrollerTop: number, regionTop: number, regionHeight: number, headHeight: number): number {
+  return Math.max(0, Math.min(scrollerTop - regionTop, regionHeight - headHeight));
+}
+
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) return node;
+  }
+  return null;
+}
+
+/**
+ * Encabezado fijo para la variante "page". Con scroll horizontal propio la región es contenedor de scroll en ambos ejes,
+ * así que `position: sticky` no puede pegarse al área de contenido: se traslada el encabezado (variable --sticky-head)
+ * siguiendo el scroll del contenedor más cercano, una vez por frame.
+ */
+function useStickyHead(ref: React.RefObject<HTMLDivElement | null>, enabled: boolean) {
+  useEffect(() => {
+    const region = ref.current;
+    if (!enabled || !region) return;
+    const scroller = scrollParent(region);
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const head = region.querySelector('thead');
+      if (!head) return;
+      const top = scroller ? scroller.getBoundingClientRect().top : 0;
+      const box = region.getBoundingClientRect();
+      region.style.setProperty('--sticky-head', `${stickyHeadOffset(top, box.top, box.height, head.getBoundingClientRect().height)}px`);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    const target: HTMLElement | Window = scroller ?? window;
+    target.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    schedule();
+    return () => {
+      target.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      cancelAnimationFrame(frame);
+    };
+  }, [ref, enabled]);
 }
 
 type PagerProps = { offset: number; limit: number; total: number; onChange: (offset: number) => void };

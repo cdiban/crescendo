@@ -313,7 +313,7 @@ const sourceLabel = (source: string) => SOURCE_LABEL[source] ?? (source.startsWi
 function FxTable({ rates, error }: { rates: FxRate[] | undefined; error: unknown }) {
   if (error) return <ErrorAlert error={error} />;
   return (
-    <DataTable label="Tabla de tipos de cambio" loading={!rates} className="max-w-3xl">
+    <DataTable scroll="page" label="Tabla de tipos de cambio" loading={!rates} className="max-w-3xl">
       <TableHeader>
         <TableRow>
           <TableHead scope="col">Par</TableHead>

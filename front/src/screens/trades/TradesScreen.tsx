@@ -108,6 +108,7 @@ export function TradesScreen({ api }: { api: Api }) {
         <ErrorAlert error={trades.error} />
       ) : (
         <DataTable
+          scroll="contained"
           label="Operaciones"
           fill
           loading={!trades.data}

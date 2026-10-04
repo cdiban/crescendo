@@ -138,6 +138,7 @@ export function DividendsScreen({ api, reportingCurrency }: { api: Api; reportin
             <ErrorAlert error={list.error} />
           ) : (
             <DataTable
+              scroll="contained"
               label="Dividendos registrados"
               fill
               loading={!list.data}
@@ -349,7 +350,7 @@ function SummarySection({ year, summary, error }: { year: number; summary: Divid
             {summary.groups.map((group) => (
               <div key={group.currency} className="grid gap-1">
                 <h3 className="text-sm font-semibold text-muted-foreground">{group.currency}</h3>
-                <DataTable label={`Resumen mensual ${group.currency}`}>
+                <DataTable scroll="page" label={`Resumen mensual ${group.currency}`}>
                   {header('Instrumento')}
                   <TableBody>
                     {group.rows.map((row) => (
@@ -387,7 +388,7 @@ function SummarySection({ year, summary, error }: { year: number; summary: Divid
                 Total en {summary.reporting.currency}{' '}
                 <span className="font-normal">— cada dividendo al tipo de cambio de su fecha de pago</span>
               </h3>
-              <DataTable label={`Resumen mensual en ${summary.reporting.currency}`}>
+              <DataTable scroll="page" label={`Resumen mensual en ${summary.reporting.currency}`}>
                 {header('Concepto')}
                 <TableBody>
                   <TableRow className="font-semibold">

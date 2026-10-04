@@ -54,6 +54,7 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
       <ErrorAlert error={positions.error ?? accounts.error} />
       {!positions.error && (
         <DataTable
+          scroll="contained"
           label="Posiciones"
           fill
           loading={!data}
