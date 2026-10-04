@@ -1,0 +1,64 @@
+#!/bin/sh
+# Prueba de restauración: restaura el último respaldo en una base temporal de db-test y compara
+# la cantidad de filas por tabla con la base de origen. La clave privada age llega por stdin.
+#   docker compose --profile test up -d db-test
+#   docker compose run --rm -T backup verify < clave.txt
+# Opciones: --target-url <servidor de prueba> (por defecto db-test), --rev <commit>.
+# --allow-same-server sólo para los tests (origen y prueba en el mismo Postgres).
+set -eu
+set -o pipefail
+. /usr/local/lib/crescendo-backup/lib.sh
+
+SCRATCH=crescendo_verify
+target=${VERIFY_TARGET_URL:-postgres://crescendo:crescendo@db-test:5432/postgres} rev=HEAD same_server=no
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target-url) target=${2:-}; shift 2 ;;
+    --rev) rev=${2:-}; shift 2 ;;
+    --allow-same-server) same_server=yes; shift ;;
+    *) fail "opción desconocida: $1" ;;
+  esac
+done
+
+cluster_id() { psql -XAtq -v ON_ERROR_STOP=1 "$@" -c 'SELECT system_identifier FROM pg_control_system()'; }
+source_id=$(cluster_id) || fail "no se pudo conectar a la base de origen"
+target_id=$(cluster_id "$target") || fail "no se pudo conectar al servidor de prueba (¿db-test levantado?)"
+if [ "$source_id" = "$target_id" ] && [ "$same_server" != yes ]; then
+  fail "el servidor de prueba es el mismo servidor que la base de origen; usa db-test"
+fi
+
+work=$(mktemp -d)
+drop_scratch() { PGOPTIONS="-c client_min_messages=warning" psql -XAtq "$target" -c "DROP DATABASE IF EXISTS $SCRATCH WITH (FORCE)" >/dev/null; }
+trap 'drop_scratch 2>/dev/null || true; rm -rf "$work"' EXIT
+read_identity "$work/key"
+
+drop_scratch
+psql -XAtq -v ON_ERROR_STOP=1 "$target" -c "CREATE DATABASE $SCRATCH" >/dev/null
+scratch_url=$(printf '%s' "$target" | sed -E "s#^(postgres(ql)?://[^/]+)(/[^?]*)?#\\1/$SCRATCH#")
+restore --target-url "$scratch_url" --rev "$rev" <"$work/key" >/dev/null
+
+# Filas por tabla de public. En el origen se cuenta lo que el respaldo debe llevar.
+counts() { # $1 = source|backup, resto = conexión
+  mode=$1; shift
+  psql -XAtq -F ' ' -v ON_ERROR_STOP=1 "$@" <<SQL
+SELECT c.relname, (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM public.%I %s', c.relname,
+  CASE WHEN '$mode' = 'backup' THEN ''
+       WHEN c.relname IN ('sessions', 'fx_rates') THEN 'WHERE false'
+       WHEN c.relname IN ('price_quotes', 'price_history') THEN 'WHERE source = ''MANUAL'''
+       ELSE '' END), false, true, '')))[1]::text
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') ORDER BY 1;
+SQL
+}
+counts source >"$work/source"
+counts backup "$scratch_url" >"$work/backup"
+
+printf '%-24s %10s %10s %s\n' tabla origen respaldo estado
+awk 'NR == FNR { restored[$1] = $2; next }
+  { got = ($1 in restored) ? restored[$1] : "-"; state = (got == $2) ? "OK" : "DIFERENTE"; if (state != "OK") bad++
+    printf "%-24s %10s %10s %s\n", $1, $2, got, state }
+  END { exit bad > 0 }' "$work/backup" "$work/source" || {
+  log "verificación con diferencias (si hubo cambios después del último respaldo, corre backup-now y repite)"
+  exit 1
+}
+log "verificación OK: $(wc -l <"$work/source" | tr -d ' ') tablas, revisión $(git_repo rev-parse --short "$rev" 2>/dev/null || echo "$rev")"

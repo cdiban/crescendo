@@ -1,0 +1,31 @@
+#!/bin/sh
+# Restaura un respaldo en una base de datos VACÍA. La clave privada age llega por stdin.
+#   docker compose run --rm -T backup restore --target-url postgres://USUARIO:CLAVE@db:5432/crescendo < clave.txt
+# Opciones: --rev <commit de la rama backups> (por defecto el último) o --file <respaldo.sql.gz.age>.
+# No hay destino por defecto y se niega si la base destino ya tiene tablas.
+set -eu
+set -o pipefail
+. /usr/local/lib/crescendo-backup/lib.sh
+
+target='' rev=HEAD file=''
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target-url) target=${2:-}; shift 2 ;;
+    --rev) rev=${2:-}; shift 2 ;;
+    --file) file=${2:-}; shift 2 ;;
+    *) fail "opción desconocida: $1" ;;
+  esac
+done
+[ -n "$target" ] || fail "falta --target-url (restore no tiene destino por defecto)"
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+read_identity "$work/key"
+
+relations=$(user_relations "$target") || fail "no se pudo consultar la base destino"
+[ "$relations" -eq 0 ] || fail "la base destino no está vacía ($relations relaciones); restore sólo escribe en una base nueva"
+
+backup=$(resolve_backup "$file" "$rev" "$work/backup.age")
+age -d -i "$work/key" "$backup" | gzip -d | psql -X -q -v ON_ERROR_STOP=1 --single-transaction "$target" >/dev/null ||
+  fail "la restauración falló; la transacción se revirtió y la base destino quedó vacía"
+log "restore ok relaciones=$(user_relations "$target")"

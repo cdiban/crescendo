@@ -1,0 +1,60 @@
+#!/bin/sh
+# Respaldo cifrado de la BD en la rama `backups` (docs/tarea-respaldos.md).
+#   docker compose run --rm backup backup-now
+# pg_dump (sólo lectura) → gzip → age con la clave PÚBLICA → commit (si cambió) → push.
+# gzip antes de cifrar: lo cifrado no se comprime (≈290 KB → ≈57 KB con un portafolio real de prueba).
+# El SQL en claro nunca toca el disco: va por una tubería a age y a un FIFO que calcula el hash.
+set -eu
+set -o pipefail
+. /usr/local/lib/crescendo-backup/lib.sh
+
+[ -n "${BACKUP_AGE_RECIPIENT:-}" ] || fail "falta BACKUP_AGE_RECIPIENT (clave pública age, age1…)"
+
+# Tablas cuyos datos no se respaldan: sesiones, tipos de cambio y precios se recargan solos.
+# De los precios se agregan después las filas MANUAL (las ingresó el usuario).
+dump() {
+  pg_dump --no-owner --no-privileges \
+    --exclude-table-data=public.sessions \
+    --exclude-table-data=public.fx_rates \
+    --exclude-table-data=public.price_quotes \
+    --exclude-table-data=public.price_history
+  psql -XAtq -v ON_ERROR_STOP=1 <<'SQL'
+SELECT '-- Precios MANUAL (los PROVIDER los vuelve a cargar el worker)';
+SELECT format('INSERT INTO public.price_quotes SELECT * FROM json_populate_record(NULL::public.price_quotes, %L);', row_to_json(q))
+  FROM public.price_quotes q WHERE source = 'MANUAL' ORDER BY instrument_id;
+SELECT format('INSERT INTO public.price_history SELECT * FROM json_populate_record(NULL::public.price_history, %L);', row_to_json(h))
+  FROM public.price_history h WHERE source = 'MANUAL' ORDER BY instrument_id, date;
+SQL
+}
+
+# Hash del contenido: sin la clave aleatoria de \restrict (cambia en cada pg_dump) y con las
+# líneas ordenadas (COPY no garantiza orden: un UPDATE sin cambios mueve la fila).
+content_hash() {
+  grep -v -E '^\\(un)?restrict ' | sort | sha256sum | cut -c1-64
+}
+
+lock_state
+prepare_repo
+
+work=$(mktemp -d)
+trap 'rm -rf "$work" "$REPO_DIR/$BACKUP_FILE.new"' EXIT
+mkfifo "$work/plain"
+content_hash <"$work/plain" >"$work/sha" &
+hasher=$!
+dump | tee "$work/plain" | gzip -9 | age -r "$BACKUP_AGE_RECIPIENT" -o "$REPO_DIR/$BACKUP_FILE.new" || fail "pg_dump, gzip o age falló"
+wait "$hasher"
+
+sha=$(cat "$work/sha")
+short=$(printf '%.12s' "$sha")
+if [ "$sha" = "$(cat "$STATE_DIR/state/last.sha256" 2>/dev/null || true)" ] && has_commits; then
+  log "sin cambios sha=$short"
+else
+  mv "$REPO_DIR/$BACKUP_FILE.new" "$REPO_DIR/$BACKUP_FILE"
+  [ -f "$REPO_DIR/README.md" ] || cp /usr/local/share/crescendo-backup/README.md "$REPO_DIR/README.md"
+  git_repo add README.md "$BACKUP_FILE"
+  git_repo commit -q -m "Respaldo $(date +%Y-%m-%dT%H:%M:%S%z)"
+  printf '%s\n' "$sha" >"$STATE_DIR/state/last.sha256"
+  log "ok commit=$(git_repo rev-parse --short HEAD) sha=$short bytes=$(wc -c <"$REPO_DIR/$BACKUP_FILE" | tr -d ' ')"
+fi
+push_pending
+date +%s >"$STATE_DIR/state/last-success"

@@ -5,3 +5,6 @@ coverage/
 .env
 # Datos financieros personales: nunca al repo ni a las imágenes
 data/
+
+# Deploy key de los respaldos (sólo en el servidor)
+secrets/

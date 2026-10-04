@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type { Container } from '../../src/composition.ts';
 import { createApp } from '../../src/interfaces/http/app.ts';
 import { Decimal } from '../../src/domain/decimal.ts';
+import type { Config } from '../../src/infrastructure/config.ts';
 import { json, startServer, type TestServer } from './http.ts';
 import { resetDatabase, startTestContainer, testConfig } from './test-database.ts';
 
@@ -25,9 +26,9 @@ export type ApiHarness = {
 
 const PASSWORD = 'contraseña-de-prueba';
 
-export async function startApi(): Promise<ApiHarness> {
-  const container = await startTestContainer();
-  const server = await startServer(createApp({ ...container.useCases, config: testConfig(), logError: (e) => console.error(e) }));
+export async function startApi(overrides: Partial<Config> = {}): Promise<ApiHarness> {
+  const container = await startTestContainer(overrides);
+  const server = await startServer(createApp({ ...container.useCases, config: testConfig(overrides), logError: (e) => console.error(e) }));
   const client = (cookie?: string): Api => {
     const send = (method: string, path: string, body?: unknown) =>
       fetch(`${server.baseUrl}/api/v1${path}`, {

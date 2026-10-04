@@ -44,6 +44,7 @@ Plataforma personal para seguir un portafolio de inversión enfocado en dividend
 | Tests front | Vitest + Testing Library | Renderizar React; reutiliza config de Vite |
 | Tipos del cliente | `openapi-typescript` (devDependency) desde `contracts/openapi.yaml` | El front no se desalinea del contrato |
 | Servidor web | nginx: sirve el build y hace proxy de `/api/` a `api:3000` | Simula producción |
+| Respaldos | Servicio `backup` (postgres:18.6-alpine + age + git): `pg_dump` diario → gzip → age (clave pública) → commit en la rama huérfana `backups` → push con deploy key | Ver `docs/tarea-respaldos.md`; portable a cualquier servidor con Docker |
 
 Toda dependencia nueva fuera de esta tabla se justifica y se aprueba con el orquestador.
 
