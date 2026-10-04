@@ -40,7 +40,7 @@ const position = (over: Partial<Position>): Position => ({
   dividendsNet: '93178', annualDividendPerShare: '266', expectedAnnualIncomeGross: '30590', yieldOnCost: '0.102', firstTradeDate: '2025-07-31',
   paymentMonths: [5, 12],
   marketPrice: '2701', priceAsOf: '2026-10-02T19:00:00Z', priceDate: '2026-10-02', priceIsIntraday: false, priceSource: 'PROVIDER', marketValue: '310615', unrealizedGain: '10718',
-  unrealizedReturn: '0.0357', totalReturn: '0.3465', currentYield: '0.0985', dayChange: '0.004089',
+  unrealizedReturn: '0.0357', totalReturn: '0.3465', positionReturn: '0.0357', currentYield: '0.0985', dayChange: '0.004089',
   reporting: {
     currency: 'USD', costBasis: '318.1234', costBasisAtCurrentRate: '305.5', fxEffect: '-12.6234', realizedGain: '0', dividendsNet: '98.7',
     expectedAnnualIncomeGross: '32.43', marketValue: '316.4', priceEffect: '10.9', unrealizedGain: '-1.7234',
@@ -51,13 +51,13 @@ const usdReporting = (costBasis: string, dividendsNet: string, expected: string 
   currency: 'USD' as const, costBasis, costBasisAtCurrentRate: costBasis, fxEffect: '0', realizedGain: '0', dividendsNet, expectedAnnualIncomeGross: expected,
   marketValue, priceEffect: unrealized, unrealizedGain: unrealized,
 });
-const noMarket = { marketPrice: null, priceAsOf: null, priceDate: null, priceIsIntraday: false, priceSource: null, marketValue: null, unrealizedGain: null, unrealizedReturn: null, totalReturn: null, currentYield: null, dayChange: null };
+const noMarket = { marketPrice: null, priceAsOf: null, priceDate: null, priceIsIntraday: false, priceSource: null, marketValue: null, unrealizedGain: null, unrealizedReturn: null, totalReturn: null, positionReturn: null, currentYield: null, dayChange: null };
 
 export const positionsByInstrument: Position[] = [
   position({}),
   position({ instrumentId: KO, symbol: 'KO', name: 'Coca-Cola', marketCode: 'US', currency: 'USD', sector: 'Consumer', quantity: '10.5', averageCost: '60.1234', costBasis: '631.2957', dividendsGross: '20.4', dividendsNet: '17.34', annualDividendPerShare: '2.04', expectedAnnualIncomeGross: '21.42', yieldOnCost: '0.0339', paymentMonths: [4, 7, 10, 12],
     marketPrice: '68.2', priceAsOf: '2026-10-03T15:59:00Z', priceDate: '2026-10-03', priceIsIntraday: true, priceSource: 'PROVIDER', marketValue: '716.1', unrealizedGain: '84.8043',
-    unrealizedReturn: '0.1343', totalReturn: '0.161', currentYield: '0.0299', dayChange: '-0.00438',
+    unrealizedReturn: '0.1343', totalReturn: '0.161', positionReturn: '0.1365', currentYield: '0.0299', dayChange: '-0.00438',
     reporting: usdReporting('631.2957', '17.34', '21.42', '716.1', '84.8043') }),
   position({ instrumentId: BITO, symbol: 'BITO', name: 'BITO', marketCode: 'US', type: 'ETF', currency: 'USD', sector: null, quantity: '3', averageCost: '20', costBasis: '60', dividendsGross: '0', dividendsNet: '0', annualDividendPerShare: null, expectedAnnualIncomeGross: null, yieldOnCost: null, paymentMonths: [], ...noMarket, reporting: usdReporting('60', '0', null, null, null) }),
 ];

@@ -25,10 +25,40 @@ describe('valuePosition (moneda original)', () => {
         unrealizedGain: '147',
         unrealizedReturn: '0.157556',
         totalReturn: '0.161093',
+        positionReturn: '0.155627',
         currentYield: '0.017',
         dayChange: '0.016949',
       },
     );
+  });
+
+  test('positionReturn: sin ventas es igual a unrealizedReturn', () => {
+    // compró 10 a 120 (1200), precio 150 → no realizada 300; 300 / 1200 = 0.25 en ambos
+    const v = valuePosition({ ...base, quantity: d('10'), costBasis: d('1200'), realizedGain: d('0'), totalBought: d('1200'), price: d('150'), previousClose: null });
+    assert.equal(v.positionReturn?.toString(), '0.25');
+    assert.deepEqual(v.positionReturn, v.unrealizedReturn);
+  });
+
+  test('positionReturn: con venta parcial y dividendos, totalReturn − positionReturn = dividendos netos / total comprado', () => {
+    // compró 10 a 200 (2000), vendió 4 con ganancia 100 → quedan 6 con costo 1200; precio 250 → valor 1500, no realizada 300
+    // posición (300 + 100) / 2000 = 0.2; total (300 + 100 + 50) / 2000 = 0.225; dividendos 50 / 2000 = 0.025
+    const v = valuePosition({
+      ...base,
+      quantity: d('6'),
+      costBasis: d('1200'),
+      realizedGain: d('100'),
+      dividendsNet: d('50'),
+      totalBought: d('2000'),
+      price: d('250'),
+      previousClose: null,
+    });
+    assert.deepEqual([v.positionReturn?.toString(), v.totalReturn?.toString(), v.unrealizedReturn?.toString()], ['0.2', '0.225', '0.25']);
+    assert.equal(v.totalReturn!.sub(v.positionReturn!).toString(), '0.025');
+  });
+
+  test('positionReturn: null sin total comprado (mismo caso que totalReturn)', () => {
+    const v = valuePosition({ ...base, quantity: d('0'), costBasis: d('0'), totalBought: d('0'), price: d('100'), previousClose: null });
+    assert.deepEqual([v.totalReturn, v.positionReturn], [null, null]);
   });
 
   test('sin precio: todo null', () => {
@@ -46,6 +76,7 @@ describe('valuePosition (moneda original)', () => {
   test('posición cerrada: valor 0, sin rentabilidad no realizada, la total usa lo realizado', () => {
     const v = valuePosition({ ...base, quantity: d('0'), costBasis: d('0'), price: d('100'), previousClose: null });
     assert.deepEqual([v.marketValue?.toString(), v.unrealizedGain?.toString(), v.unrealizedReturn, v.totalReturn?.toString()], ['0', '0', null, '0.066559']);
+    assert.equal(v.positionReturn?.toString(), '0.061093'); // 95 / 1555
   });
 
   test('equivale a la "Rentabilidad" del Excel en una posición sin ventas: (valor + dividendos − invertido) / invertido', () => {

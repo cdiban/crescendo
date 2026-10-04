@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import type { Api, Currency, Position, PositionList } from '../api/client.ts';
 import { DataTable } from '../components/DataTable.tsx';
 import { CheckboxField, FormField } from '../components/form.tsx';
@@ -7,6 +8,8 @@ import { ErrorAlert, PageHeader, Signed, SignedPercent, isZero, orDash } from '.
 import { formatDate, formatDateTime, formatMoney, formatPercent, formatQuantity, formatUnitPrice, isOne, monthName } from '../lib/format.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useAutoRefresh } from '../lib/useAutoRefresh.ts';
+import { compareDecimal } from '../lib/decimal-compare.ts';
+import { navigate, useSearch } from '../router.tsx';
 import { REFRESH_MS } from './SummaryScreen.tsx';
 import { Card } from '@/components/ui/card';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
@@ -16,6 +19,67 @@ import { cn } from '@/lib/utils';
 const NUM = 'text-right tabular-nums';
 const COLUMNS = 19;
 const RC = 'bg-accent/40';
+
+/**
+ * Columnas ordenables: porcentajes y montos en moneda de reporte (comparables entre filas).
+ * Las de moneda original no se ordenan: mezclarían CLP con USD. La clave es la que va en ?orden=.
+ */
+const SORT_KEYS = {
+  unrealizedReturn: (p: Position) => p.unrealizedReturn,
+  totalReturn: (p: Position) => p.totalReturn,
+  positionReturn: (p: Position) => p.positionReturn,
+  currentYield: (p: Position) => p.currentYield,
+  reportingMarketValue: (p: Position) => p.reporting.marketValue,
+  priceEffect: (p: Position) => p.reporting.priceEffect,
+  fxEffect: (p: Position) => p.reporting.fxEffect,
+  reportingCostBasis: (p: Position) => p.reporting.costBasis,
+  yieldOnCost: (p: Position) => p.yieldOnCost,
+} satisfies Record<string, (p: Position) => string | null | undefined>;
+type SortKey = keyof typeof SORT_KEYS;
+type Sort = { key: SortKey; dir: 'asc' | 'desc' };
+const SORT_PARAM = 'orden';
+const DIR_PARAM = 'dir';
+
+function isSortKey(key: string | null): key is SortKey {
+  return key !== null && Object.hasOwn(SORT_KEYS, key);
+}
+
+/** Orden global (no por moneda): nulos siempre al final y empates por símbolo. Compara decimales exactos, sin float. */
+function sortPositions(items: Position[], { key, dir }: Sort): Position[] {
+  const value = SORT_KEYS[key];
+  return [...items].sort((a, b) => {
+    const va = value(a);
+    const vb = value(b);
+    if (va == null || vb == null) {
+      if (va != null) return -1;
+      if (vb != null) return 1;
+    } else {
+      const c = compareDecimal(va, vb);
+      if (c !== 0) return dir === 'desc' ? -c : c;
+    }
+    return a.symbol.localeCompare(b.symbol);
+  });
+}
+
+/** Orden vigente según la URL (?orden=positionReturn&dir=desc) y cómo avanzarlo: desc → asc → original. */
+function useSort(): [Sort | null, (key: SortKey) => void] {
+  const search = useSearch();
+  const key = search.get(SORT_PARAM);
+  const sort: Sort | null = isSortKey(key) ? { key, dir: search.get(DIR_PARAM) === 'asc' ? 'asc' : 'desc' } : null;
+
+  function cycle(next: SortKey) {
+    const params = new URLSearchParams(window.location.search);
+    params.delete(SORT_PARAM);
+    params.delete(DIR_PARAM);
+    if (sort?.key !== next || sort.dir === 'desc') {
+      params.set(SORT_PARAM, next);
+      params.set(DIR_PARAM, sort?.key === next ? 'asc' : 'desc');
+    }
+    const query = params.toString();
+    navigate(window.location.pathname + (query ? `?${query}` : ''), { replace: true });
+  }
+  return [sort, cycle];
+}
 
 export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportingCurrency: Currency }) {
   const [accountId, setAccountId] = useState('');
@@ -27,12 +91,18 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
     [api, accountId, includeClosed, reportingCurrency],
   );
   useAutoRefresh(positions.reload, REFRESH_MS);
+  const [sort, cycleSort] = useSort();
 
   // La API ya las entrega ordenadas por moneda y símbolo; sólo se agrupan para mostrarlas. Los totales también vienen de la API.
   const data = positions.data;
   const groups = new Map<Currency, Position[]>();
   for (const p of data?.items ?? []) groups.set(p.currency, [...(groups.get(p.currency) ?? []), p]);
   const rc = data?.reportingCurrency ?? reportingCurrency;
+  const sortHead = (key: SortKey, label: ReactNode, props: { className?: string; title?: string; buttonTitle?: string } = {}) => (
+    <SortableHead sortKey={key} sort={sort} onSort={cycleSort} {...props}>
+      {label}
+    </SortableHead>
+  );
 
   return (
     <>
@@ -67,81 +137,54 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
               <TableHead scope="col" className={NUM}>Cantidad</TableHead>
               {/* Primero lo de mercado (cabe a 1280 px); a la derecha, con scroll, reporte y costos. */}
               <TableHead scope="col" className={NUM}>Precio</TableHead>
-              <TableHead scope="col" className={NUM}>Var. día</TableHead>
               <TableHead scope="col" className={NUM}>Valor de mercado</TableHead>
-              <TableHead scope="col" className={NUM}>Ganancia no realizada</TableHead>
-              <TableHead scope="col" className={NUM}>Rentabilidad total</TableHead>
-              <TableHead scope="col" className={NUM}>Yield actual</TableHead>
-              <TableHead scope="col" className={cn(NUM, 'bg-accent!')}>Valor en {rc}</TableHead>
-              <TableHead scope="col" className={cn(NUM, 'bg-accent!')}>Efecto precio ({rc})</TableHead>
-              <TableHead scope="col" className={cn(NUM, 'bg-accent!')}>Efecto cambiario ({rc})</TableHead>
+              {sortHead('unrealizedReturn', 'Ganancia no realizada', { buttonTitle: 'Ordenar por % de ganancia no realizada' })}
+              {sortHead('totalReturn', 'Rentabilidad total', { title: 'Incluye dividendos cobrados' })}
+              {sortHead('positionReturn', 'Rentabilidad posición', {
+                title: 'Ganancia por precio (no realizada + realizada) sobre lo invertido, sin dividendos',
+              })}
+              {sortHead('currentYield', 'Yield actual')}
+              {sortHead('reportingMarketValue', <>Valor en {rc}</>, { className: 'bg-accent!' })}
+              {sortHead('priceEffect', <>Efecto precio ({rc})</>, { className: 'bg-accent!' })}
+              {sortHead('fxEffect', <>Efecto cambiario ({rc})</>, { className: 'bg-accent!' })}
               <TableHead scope="col" className={NUM}>Costo promedio</TableHead>
               <TableHead scope="col" className={NUM}>Invertido</TableHead>
-              <TableHead scope="col" className={cn(NUM, 'bg-accent!')}>Costo en {rc}</TableHead>
+              {sortHead('reportingCostBasis', <>Costo en {rc}</>, { className: 'bg-accent!' })}
               <TableHead scope="col" className={NUM}>Ganancia realizada</TableHead>
               <TableHead scope="col" className={NUM}>Div. cobrados (neto)</TableHead>
               <TableHead scope="col" className={NUM}>Ingreso anual esperado</TableHead>
-              <TableHead scope="col" className={NUM}>Yield on cost</TableHead>
+              {sortHead('yieldOnCost', 'Yield on cost')}
               <TableHead scope="col">Meses de pago</TableHead>
             </TableRow>
           </TableHeader>
-          {[...groups].map(([currency, items]) => (
-            <TableBody key={currency} aria-label={`Posiciones ${currency}`}>
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={COLUMNS} className="bg-muted/60! py-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  {currency}
-                </TableCell>
-              </TableRow>
-              {items.map((p) => (
-                <TableRow key={p.instrumentId} data-closed={isZero(p.quantity) || undefined} className="data-closed:text-muted-foreground">
-                  <TableHead scope="row" className="h-auto py-2">
-                    <span className="block font-semibold">{p.symbol}</span>
-                    {p.name !== p.symbol && <span className="block max-w-40 truncate text-xs font-normal text-muted-foreground">{p.name}</span>}
-                  </TableHead>
-                  <TableCell className={NUM}>{formatQuantity(p.quantity)}</TableCell>
-                  <PriceCell position={p} />
-                  <TableCell className={NUM}>{orDash(p.dayChange, (v) => <SignedPercent value={v} />)}</TableCell>
-                  <TableCell className={`${NUM} font-medium`}>{orDash(p.marketValue, (v) => formatMoney(v, p.currency))}</TableCell>
-                  <TableCell className={NUM}>
-                    {p.unrealizedGain == null ? (
-                      '—'
-                    ) : (
-                      <>
-                        <Signed amount={p.unrealizedGain} currency={p.currency} colorPositive />
-                        {p.unrealizedReturn != null && (
-                          <span className="block text-xs">
-                            <SignedPercent value={p.unrealizedReturn} />
-                          </span>
-                        )}
-                      </>
-                    )}
+          {sort ? (
+            <>
+              <TableBody aria-label="Posiciones ordenadas">
+                {sortPositions(data?.items ?? [], sort).map((p) => (
+                  <PositionRow key={p.instrumentId} position={p} />
+                ))}
+              </TableBody>
+              <TableBody aria-label="Totales por moneda">
+                {[...groups.keys()].map((currency) => (
+                  <GroupTotals key={currency} totals={data?.totalsByCurrency.find((t) => t.currency === currency)} />
+                ))}
+              </TableBody>
+            </>
+          ) : (
+            [...groups].map(([currency, items]) => (
+              <TableBody key={currency} aria-label={`Posiciones ${currency}`}>
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={COLUMNS} className="bg-muted/60! py-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                    {currency}
                   </TableCell>
-                  <TableCell className={NUM}>{orDash(p.totalReturn, (v) => <SignedPercent value={v} />)}</TableCell>
-                  <TableCell className={NUM}>{orDash(p.currentYield, formatPercent)}</TableCell>
-                  <TableCell className={cn(NUM, RC)}>{orDash(p.reporting.marketValue, (v) => formatMoney(v, p.reporting.currency))}</TableCell>
-                  <TableCell className={cn(NUM, RC)}>
-                    {orDash(p.reporting.priceEffect, (v) => <Signed amount={v} currency={p.reporting.currency} colorPositive />)}
-                  </TableCell>
-                  <TableCell className={cn(NUM, RC)}>
-                    <Signed amount={p.reporting.fxEffect} currency={p.reporting.currency} colorPositive />
-                  </TableCell>
-                  <TableCell className={NUM}>{formatUnitPrice(p.averageCost, p.currency)}</TableCell>
-                  <TableCell className={NUM}>{formatMoney(p.costBasis, p.currency)}</TableCell>
-                  <TableCell className={cn(NUM, RC)}>{formatMoney(p.reporting.costBasis, p.reporting.currency)}</TableCell>
-                  <TableCell className={NUM}>
-                    <Signed amount={p.realizedGain} currency={p.currency} />
-                  </TableCell>
-                  <TableCell className={NUM} title={`Bruto ${formatMoney(p.dividendsGross, p.currency)}`}>
-                    {formatMoney(p.dividendsNet, p.currency)}
-                  </TableCell>
-                  <TableCell className={NUM}>{orDash(p.expectedAnnualIncomeGross, (v) => formatMoney(v, p.currency))}</TableCell>
-                  <TableCell className={NUM}>{orDash(p.yieldOnCost, formatPercent)}</TableCell>
-                  <TableCell>{paymentMonths(p.paymentMonths)}</TableCell>
                 </TableRow>
-              ))}
-              <GroupTotals totals={data?.totalsByCurrency.find((t) => t.currency === currency)} />
-            </TableBody>
-          ))}
+                {items.map((p) => (
+                  <PositionRow key={p.instrumentId} position={p} />
+                ))}
+                <GroupTotals totals={data?.totalsByCurrency.find((t) => t.currency === currency)} />
+              </TableBody>
+            ))
+          )}
         </DataTable>
       )}
 
@@ -195,13 +238,100 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
   );
 }
 
+function PositionRow({ position: p }: { position: Position }) {
+  return (
+    <TableRow data-closed={isZero(p.quantity) || undefined} className="data-closed:text-muted-foreground">
+      <TableHead scope="row" className="h-auto py-2">
+        <span className="block font-semibold">{p.symbol}</span>
+        {p.name !== p.symbol && <span className="block max-w-40 truncate text-xs font-normal text-muted-foreground">{p.name}</span>}
+      </TableHead>
+      <TableCell className={NUM}>{formatQuantity(p.quantity)}</TableCell>
+      <PriceCell position={p} />
+      <TableCell className={`${NUM} font-medium`}>{orDash(p.marketValue, (v) => formatMoney(v, p.currency))}</TableCell>
+      <TableCell className={NUM}>
+        {p.unrealizedGain == null ? (
+          '—'
+        ) : (
+          <>
+            <Signed amount={p.unrealizedGain} currency={p.currency} colorPositive />
+            {p.unrealizedReturn != null && (
+              <span className="block text-xs">
+                <SignedPercent value={p.unrealizedReturn} />
+              </span>
+            )}
+          </>
+        )}
+      </TableCell>
+      <TableCell className={NUM}>{orDash(p.totalReturn, (v) => <SignedPercent value={v} />)}</TableCell>
+      <TableCell className={NUM}>{orDash(p.positionReturn, (v) => <SignedPercent value={v} />)}</TableCell>
+      <TableCell className={NUM}>{orDash(p.currentYield, formatPercent)}</TableCell>
+      <TableCell className={cn(NUM, RC)}>{orDash(p.reporting.marketValue, (v) => formatMoney(v, p.reporting.currency))}</TableCell>
+      <TableCell className={cn(NUM, RC)}>
+        {orDash(p.reporting.priceEffect, (v) => <Signed amount={v} currency={p.reporting.currency} colorPositive />)}
+      </TableCell>
+      <TableCell className={cn(NUM, RC)}>
+        <Signed amount={p.reporting.fxEffect} currency={p.reporting.currency} colorPositive />
+      </TableCell>
+      <TableCell className={NUM}>{formatUnitPrice(p.averageCost, p.currency)}</TableCell>
+      <TableCell className={NUM}>{formatMoney(p.costBasis, p.currency)}</TableCell>
+      <TableCell className={cn(NUM, RC)}>{formatMoney(p.reporting.costBasis, p.reporting.currency)}</TableCell>
+      <TableCell className={NUM}>
+        <Signed amount={p.realizedGain} currency={p.currency} />
+      </TableCell>
+      <TableCell className={NUM} title={`Bruto ${formatMoney(p.dividendsGross, p.currency)}`}>
+        {formatMoney(p.dividendsNet, p.currency)}
+      </TableCell>
+      <TableCell className={NUM}>{orDash(p.expectedAnnualIncomeGross, (v) => formatMoney(v, p.currency))}</TableCell>
+      <TableCell className={NUM}>{orDash(p.yieldOnCost, formatPercent)}</TableCell>
+      <TableCell>{paymentMonths(p.paymentMonths)}</TableCell>
+    </TableRow>
+  );
+}
+
+/** Encabezado ordenable: botón con flecha y aria-sort en el th. El title del th explica la columna. */
+function SortableHead({
+  sortKey,
+  sort,
+  onSort,
+  className,
+  title,
+  buttonTitle,
+  children,
+}: {
+  sortKey: SortKey;
+  sort: Sort | null;
+  onSort: (key: SortKey) => void;
+  className?: string;
+  title?: string;
+  buttonTitle?: string;
+  children: ReactNode;
+}) {
+  const dir = sort?.key === sortKey ? sort.dir : null;
+  const Icon = dir === 'desc' ? ArrowDown : dir === 'asc' ? ArrowUp : ArrowUpDown;
+  return (
+    <TableHead scope="col" className={cn(NUM, className)} title={title} aria-sort={dir === 'desc' ? 'descending' : dir === 'asc' ? 'ascending' : 'none'}>
+      <button
+        type="button"
+        title={buttonTitle}
+        onClick={() => onSort(sortKey)}
+        className="group/sort -mx-1 inline-flex items-center gap-1 rounded px-1 font-medium hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      >
+        {children}
+        <Icon
+          aria-hidden="true"
+          className={cn('size-3.5 shrink-0', dir ? 'text-primary' : 'text-muted-foreground/50 group-hover/sort:text-muted-foreground')}
+        />
+      </button>
+    </TableHead>
+  );
+}
+
 function GroupTotals({ totals }: { totals: PositionList['totalsByCurrency'][number] | undefined }) {
   if (!totals) return null;
   const money = (v: string) => formatMoney(v, totals.currency);
   return (
     <TableRow className="bg-muted/40 font-semibold hover:bg-muted/40">
       <TableHead scope="row">Total {totals.currency}</TableHead>
-      <TableCell />
       <TableCell />
       <TableCell />
       <TableCell className={NUM}>
@@ -213,6 +343,7 @@ function GroupTotals({ totals }: { totals: PositionList['totalsByCurrency'][numb
       <TableCell className={NUM}>
         <Signed amount={totals.unrealizedGain} currency={totals.currency} colorPositive />
       </TableCell>
+      <TableCell />
       <TableCell />
       <TableCell />
       <TableCell className={RC} />

@@ -327,6 +327,7 @@ describe('posiciones', () => {
         unrealizedGain: null,
         unrealizedReturn: null,
         totalReturn: null,
+        positionReturn: null,
         currentYield: null,
         dayChange: null,
       },

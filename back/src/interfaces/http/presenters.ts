@@ -175,6 +175,7 @@ export const presentPosition = (p: PositionView) => ({
   unrealizedGain: sn(p.unrealizedGain),
   unrealizedReturn: sn(p.unrealizedReturn),
   totalReturn: sn(p.totalReturn),
+  positionReturn: sn(p.positionReturn),
   currentYield: sn(p.currentYield),
   dayChange: sn(p.dayChange),
 });

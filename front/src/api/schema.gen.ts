@@ -1039,6 +1039,8 @@ export interface components {
             unrealizedReturn?: components["schemas"]["Decimal"] | null;
             /** @description (unrealizedGain + realizedGain + dividendsNet) / costo total comprado */
             totalReturn?: components["schemas"]["Decimal"] | null;
+            /** @description (v0.6.1) Rentabilidad sólo de la posición, sin dividendos: (unrealizedGain + realizedGain) / costo total comprado, fracción. Mismo denominador que totalReturn, así que totalReturn − positionReturn = dividendsNet / costo total comprado. Null en los mismos casos que totalReturn. */
+            positionReturn: components["schemas"]["Decimal"] | null;
             /** @description annualDividendPerShare / marketPrice */
             currentYield?: components["schemas"]["Decimal"] | null;
             /** @description Variación % del precio vs cierre anterior */
@@ -2586,7 +2588,7 @@ export interface operations {
                 reportingCurrency?: components["parameters"]["ReportingCurrency"];
                 /** @description Moneda original a filtrar (sin conversión) */
                 currency?: components["schemas"]["Currency"];
-                /** @description Años separados por coma, máx. 6. Default: los 3 últimos incluido el actual */
+                /** @description Años separados por coma, máx. 6; se respetan aunque estén en 0. Default: los 3 últimos de availableYears (puede ser menos de 3) */
                 years?: string;
             };
             header?: never;

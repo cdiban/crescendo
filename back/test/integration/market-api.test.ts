@@ -135,10 +135,28 @@ describe('posiciones a precio de mercado', () => {
     );
     const e = row(p.items, 'PEHUENCHE');
     assert.deepEqual([e.marketValue, e.unrealizedGain, e.totalReturn, e.dayChange], ['110000', '10000', '0.15', null]);
+    // positionReturn (v0.6.1), sin dividendos. KO con venta parcial: (147 + 95) / 1555; la diferencia con
+    // totalReturn es dividendos netos / total comprado = 8.5 / 1555. PEHUENCHE sin ventas: igual a unrealizedReturn.
+    assert.equal(k.positionReturn, '0.155627');
+    assert.equal(d(k.totalReturn).sub(d(k.positionReturn)).toString(), '0.005466');
+    assert.deepEqual([e.positionReturn, e.unrealizedReturn], ['0.1', '0.1']);
     assert.deepEqual(
       p.totalsByCurrency.map((t: Record<string, string>) => [t.currency, t.marketValue, t.unrealizedGain, t.pricedCoverage]),
       [['CLP', '110000', '10000', '1'], ['USD', '1080', '147', '1']],
     );
+  });
+
+  test('positionReturn con groupBy=account e includeClosed', async () => {
+    const byAccount = await expectStatus(await ana.get(`/positions?groupBy=account&asOf=${ASOF}`), 200);
+    assert.ok(byAccount.items.every((i: { accountId: string | null }) => i.accountId));
+    assert.deepEqual([row(byAccount.items, 'KO').positionReturn, row(byAccount.items, 'PEHUENCHE').positionReturn], ['0.155627', '0.1']);
+    // Vende todo PEHUENCHE a 1200: realizada 20000 → posición 20000 / 100000; total (20000 + 5000) / 100000.
+    const itau = row(byAccount.items, 'PEHUENCHE').accountId;
+    await expectStatus(await ana.post('/trades', { accountId: itau, instrumentId: peh.id, side: 'SELL', tradeDate: '2025-06-01', quantity: '100', price: '1200' }), 201);
+    const withClosed = await expectStatus(await ana.get(`/positions?includeClosed=true&asOf=${ASOF}`), 200);
+    const closed = row(withClosed.items, 'PEHUENCHE');
+    assert.deepEqual([closed.quantity, closed.realizedGain, closed.positionReturn, closed.totalReturn, closed.unrealizedReturn], ['0', '20000', '0.2', '0.25', null]);
+    assert.equal(row(withClosed.items, 'KO').positionReturn, '0.155627');
   });
 
   test('CLP: invariante valor − costo = efecto precio + efecto cambiario por fila y en el total', async () => {
@@ -160,7 +178,7 @@ describe('posiciones a precio de mercado', () => {
     await h.container.dataSource.query(`DELETE FROM price_quotes WHERE instrument_id = $1`, [peh.id]);
     const p = await expectStatus(await ana.get(`/positions?reportingCurrency=CLP&asOf=${ASOF}`), 200);
     const e = row(p.items, 'PEHUENCHE');
-    assert.deepEqual([e.marketPrice, e.marketValue, e.totalReturn, e.reporting.marketValue, e.reporting.priceEffect], [null, null, null, null, null]);
+    assert.deepEqual([e.marketPrice, e.marketValue, e.totalReturn, e.positionReturn, e.reporting.marketValue, e.reporting.priceEffect], [null, null, null, null, null, null]);
     assert.equal(p.totalsByCurrency.find((t: { currency: string }) => t.currency === 'CLP').pricedCoverage, '0');
     assert.equal(p.total.marketValue, '1058400');
     const s = await expectStatus(await ana.get(`/portfolio/summary?reportingCurrency=CLP&asOf=${ASOF}`), 200);

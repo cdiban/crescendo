@@ -9,6 +9,8 @@ export type PositionValuation = {
   unrealizedReturn: Decimal | null;
   /** (no realizada + realizada + dividendos netos) / total comprado ("Rentabilidad" del Excel). */
   totalReturn: Decimal | null;
+  /** (no realizada + realizada) / total comprado: la posición sin dividendos (mismo denominador que totalReturn). */
+  positionReturn: Decimal | null;
   /** dividendo anual esperado / precio. */
   currentYield: Decimal | null;
   /** precio / cierre anterior − 1. */
@@ -29,15 +31,17 @@ export function valuePosition(input: {
 }): PositionValuation {
   const { price } = input;
   if (price === null) {
-    return { marketValue: null, unrealizedGain: null, unrealizedReturn: null, totalReturn: null, currentYield: null, dayChange: null };
+    return { marketValue: null, unrealizedGain: null, unrealizedReturn: null, totalReturn: null, positionReturn: null, currentYield: null, dayChange: null };
   }
   const marketValue = roundAmount(input.quantity.mul(price));
   const unrealizedGain = marketValue.sub(input.costBasis);
+  const positionGain = unrealizedGain.add(input.realizedGain);
   return {
     marketValue,
     unrealizedGain,
     unrealizedReturn: ratio(unrealizedGain, input.costBasis),
-    totalReturn: ratio(unrealizedGain.add(input.realizedGain).add(input.dividendsNet), input.totalBought),
+    totalReturn: ratio(positionGain.add(input.dividendsNet), input.totalBought),
+    positionReturn: ratio(positionGain, input.totalBought),
     currentYield: input.annualDividendPerShare === null ? null : ratio(input.annualDividendPerShare, price),
     dayChange: input.previousClose === null ? null : ratio(price, input.previousClose)?.sub(Decimal.ONE) ?? null,
   };

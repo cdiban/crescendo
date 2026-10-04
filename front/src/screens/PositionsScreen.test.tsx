@@ -1,11 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { PositionsScreen } from './PositionsScreen.tsx';
 import { createApi } from '../api/client.ts';
 import { calls, mockFetch } from '../test/http.ts';
 import { ITAU, accounts, positionList, positionsByInstrument } from '../test/fixtures.ts';
+import type { Currency } from '../api/client.ts';
 
 const text = (el: HTMLElement) => (el.textContent ?? '').replace(/ /g, ' ');
+
+afterEach(() => window.history.replaceState(null, '', '/'));
 
 describe('PositionsScreen', () => {
   it('muestra una tabla por moneda con los montos de la API formateados', async () => {
@@ -21,16 +24,16 @@ describe('PositionsScreen', () => {
 
     const headers = within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('columnheader').map((h) => h.textContent);
     expect(headers).toEqual([
-      'Instrumento', 'Cantidad', 'Precio', 'Var. día', 'Valor de mercado', 'Ganancia no realizada', 'Rentabilidad total', 'Yield actual',
+      'Instrumento', 'Cantidad', 'Precio', 'Valor de mercado', 'Ganancia no realizada', 'Rentabilidad total', 'Rentabilidad posición', 'Yield actual',
       'Valor en USD', 'Efecto precio (USD)', 'Efecto cambiario (USD)',
       'Costo promedio', 'Invertido', 'Costo en USD', 'Ganancia realizada', 'Div. cobrados (neto)', 'Ingreso anual esperado', 'Yield on cost', 'Meses de pago',
     ]);
 
     expect(text(within(clp).getByRole('row', { name: /PEHUENCHE/ }))).toBe(
-      'PEHUENCHEPehuenche115$2.701+0,41%$310.615$10.718+3,57%+34,65%9,85%US$316,40US$10,90US$-12,62$2.607,8$299.897US$318,12$0$93.178$30.59010,2%may, dic',
+      'PEHUENCHEPehuenche115$2.701$310.615$10.718+3,57%+34,65%+3,57%9,85%US$316,40US$10,90US$-12,62$2.607,8$299.897US$318,12$0$93.178$30.59010,2%may, dic',
     );
     expect(text(within(usd).getByRole('row', { name: /KO/ }))).toBe(
-      'KOCoca-Cola10,5US$68,20-0,44%US$716,10US$84,80+13,43%+16,1%2,99%US$716,10US$84,80US$0,00US$60,1234US$631,30US$631,30US$0,00US$17,34US$21,423,39%abr, jul, oct, dic',
+      'KOCoca-Cola10,5US$68,20US$716,10US$84,80+13,43%+16,1%+13,65%2,99%US$716,10US$84,80US$0,00US$60,1234US$631,30US$631,30US$0,00US$17,34US$21,423,39%abr, jul, oct, dic',
     );
     // Sin precio: campos de mercado vacíos; nombre igual al símbolo no se repite.
     expect(text(within(usd).getByRole('row', { name: /BITO/ }))).toBe(
@@ -38,18 +41,45 @@ describe('PositionsScreen', () => {
     );
   });
 
-  it('colorea la variación del día y la ganancia no realizada por signo', async () => {
+  it('ya no muestra la variación del día en ninguna parte', async () => {
     mockFetch([
       { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
       { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList() },
     ]);
     render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
+    await screen.findByRole('rowgroup', { name: 'Posiciones USD' });
+    expect(screen.queryByText(/Var\. día/)).toBeNull();
+    expect(screen.queryByText('-0,44%')).toBeNull(); // dayChange de KO
+    expect(screen.queryByText('+0,41%')).toBeNull(); // dayChange de PEHUENCHE
+  });
+
+  it('colorea la ganancia no realizada y las rentabilidades por signo', async () => {
+    const loser = { ...positionsByInstrument[1]!, positionReturn: '-0.0812' };
+    mockFetch([
+      { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+      { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList([positionsByInstrument[0]!, loser]) },
+    ]);
+    render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
     const usd = await screen.findByRole('rowgroup', { name: 'Posiciones USD' });
     const ko = within(usd).getByRole('row', { name: /KO/ });
-    expect(within(ko).getByText('-0,44%').dataset.tone).toBe('negative');
     expect(within(ko).getByText('+13,43%').dataset.tone).toBe('positive');
+    expect(within(ko).getByText('-8,12%').dataset.tone).toBe('negative');
     const clp = screen.getByRole('rowgroup', { name: 'Posiciones CLP' });
-    expect(within(within(clp).getByRole('row', { name: /PEHUENCHE/ })).getByText('+0,41%').dataset.tone).toBe('positive');
+    const pehuenche = within(clp).getByRole('row', { name: /PEHUENCHE/ });
+    expect(within(pehuenche).getByText('+34,65%').dataset.tone).toBe('positive');
+  });
+
+  it('explica en el encabezado qué incluye cada rentabilidad', async () => {
+    mockFetch([
+      { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+      { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList() },
+    ]);
+    render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
+    await screen.findByRole('rowgroup', { name: 'Posiciones USD' });
+    expect(screen.getByRole('columnheader', { name: 'Rentabilidad total' }).getAttribute('title')).toBe('Incluye dividendos cobrados');
+    expect(screen.getByRole('columnheader', { name: 'Rentabilidad posición' }).getAttribute('title')).toBe(
+      'Ganancia por precio (no realizada + realizada) sobre lo invertido, sin dividendos',
+    );
   });
 
   it('muestra la fecha de negocio del precio: con hora sólo si es intradía; marca los manuales', async () => {
@@ -231,5 +261,122 @@ describe('PositionsScreen', () => {
     ]);
     render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
     expect(await screen.findByText(/No hay posiciones abiertas/)).toBeTruthy();
+  });
+});
+
+/** Posición mínima para ordenar: nombre igual al símbolo (la celda de fila muestra sólo el símbolo). */
+const pos = (symbol: string, currency: Currency, positionReturn: string | null) => ({
+  ...positionsByInstrument[0]!, instrumentId: symbol, symbol, name: symbol, currency, positionReturn,
+});
+// Orden de la API: moneda y símbolo.
+const SORTABLE = [pos('BBB', 'CLP', '0.20'), pos('DDD', 'CLP', '0.05'), pos('AAA', 'USD', '0.05'), pos('CCC', 'USD', null), pos('EEE', 'USD', '-0.10')];
+const ORIGINAL = ['BBB', 'DDD', 'Total CLP', 'AAA', 'CCC', 'EEE', 'Total USD'];
+
+async function renderSortable() {
+  mockFetch([
+    { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+    { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList(SORTABLE) },
+  ]);
+  render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
+  await screen.findAllByRole('rowheader');
+}
+const order = () => within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('rowheader').map((h) => h.textContent);
+const header = (name: string) => screen.getByRole('columnheader', { name });
+
+describe('PositionsScreen — orden por columnas', () => {
+  it('ordena sólo columnas de porcentaje y de moneda de reporte; las de moneda original no', async () => {
+    await renderSortable();
+    const buttons = within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('button').map((b) => b.textContent);
+    expect(buttons).toEqual([
+      'Ganancia no realizada', 'Rentabilidad total', 'Rentabilidad posición', 'Yield actual',
+      'Valor en USD', 'Efecto precio (USD)', 'Efecto cambiario (USD)', 'Costo en USD', 'Yield on cost',
+    ]);
+    for (const name of ['Valor de mercado', 'Invertido', 'Costo promedio', 'Ganancia realizada']) {
+      expect(within(header(name)).queryByRole('button')).toBeNull();
+      expect(header(name).hasAttribute('aria-sort')).toBe(false);
+    }
+    // La ganancia no realizada se ordena por su porcentaje (comparable entre monedas).
+    expect(screen.getByRole('button', { name: 'Ganancia no realizada' }).getAttribute('title')).toBe('Ordenar por % de ganancia no realizada');
+  });
+
+  it('clic: mayor a menor → menor a mayor → orden original; con aria-sort y totales al final', async () => {
+    await renderSortable();
+    expect(order()).toEqual(ORIGINAL);
+    const button = screen.getByRole('button', { name: 'Rentabilidad posición' });
+
+    fireEvent.click(button);
+    // Global (no por moneda), null al final, empate AAA/DDD por símbolo, totales por moneda al final.
+    expect(order()).toEqual(['BBB', 'AAA', 'DDD', 'EEE', 'CCC', 'Total CLP', 'Total USD']);
+    expect(header('Rentabilidad posición').getAttribute('aria-sort')).toBe('descending');
+    expect(header('Rentabilidad total').getAttribute('aria-sort')).toBe('none');
+    expect(screen.queryByRole('rowgroup', { name: 'Posiciones CLP' })).toBeNull();
+
+    fireEvent.click(button);
+    expect(order()).toEqual(['EEE', 'AAA', 'DDD', 'BBB', 'CCC', 'Total CLP', 'Total USD']);
+    expect(header('Rentabilidad posición').getAttribute('aria-sort')).toBe('ascending');
+
+    fireEvent.click(button);
+    expect(order()).toEqual(ORIGINAL);
+    expect(header('Rentabilidad posición').getAttribute('aria-sort')).toBe('none');
+    expect(screen.getByRole('rowgroup', { name: 'Posiciones CLP' })).toBeTruthy();
+  });
+
+  it('cambiar de columna empieza de mayor a menor', async () => {
+    await renderSortable();
+    fireEvent.click(screen.getByRole('button', { name: 'Rentabilidad posición' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rentabilidad posición' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yield actual' }));
+    expect(header('Yield actual').getAttribute('aria-sort')).toBe('descending');
+    expect(header('Rentabilidad posición').getAttribute('aria-sort')).toBe('none');
+  });
+
+  it('refleja el orden en la URL y lo restaura al cargar', async () => {
+    window.history.replaceState(null, '', '/posiciones?x=1');
+    await renderSortable();
+    const button = screen.getByRole('button', { name: 'Rentabilidad posición' });
+    fireEvent.click(button);
+    expect(window.location.pathname + window.location.search).toBe('/posiciones?x=1&orden=positionReturn&dir=desc');
+    fireEvent.click(button);
+    expect(window.location.search).toBe('?x=1&orden=positionReturn&dir=asc');
+    fireEvent.click(button);
+    expect(window.location.search).toBe('?x=1');
+  });
+
+  it('al cargar con ?orden=…&dir=asc ya viene ordenado', async () => {
+    window.history.replaceState(null, '', '/posiciones?orden=positionReturn&dir=asc');
+    await renderSortable();
+    expect(order()).toEqual(['EEE', 'AAA', 'DDD', 'BBB', 'CCC', 'Total CLP', 'Total USD']);
+    expect(header('Rentabilidad posición').getAttribute('aria-sort')).toBe('ascending');
+  });
+
+  it('un orden desconocido en la URL se ignora', async () => {
+    window.history.replaceState(null, '', '/posiciones?orden=marketValue&dir=desc');
+    await renderSortable();
+    expect(order()).toEqual(ORIGINAL);
+  });
+
+  it('ordena por moneda de reporte y por el % de la ganancia no realizada, con null al final', async () => {
+    window.history.replaceState(null, '', '/posiciones?orden=reportingMarketValue&dir=asc');
+    const items = [
+      { ...pos('AAA', 'CLP', null), reporting: { ...positionsByInstrument[0]!.reporting, marketValue: '316.4' }, unrealizedReturn: null },
+      { ...pos('BBB', 'USD', null), reporting: { ...positionsByInstrument[0]!.reporting, marketValue: null }, unrealizedReturn: '-0.2' },
+      { ...pos('CCC', 'USD', null), reporting: { ...positionsByInstrument[0]!.reporting, marketValue: '1000.01' }, unrealizedReturn: '0.3' },
+    ];
+    mockFetch([
+      { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+      { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList(items) },
+    ]);
+    render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
+    await screen.findAllByRole('rowheader');
+    expect(order().slice(0, 3)).toEqual(['AAA', 'CCC', 'BBB']);
+    fireEvent.click(screen.getByRole('button', { name: 'Ganancia no realizada' }));
+    expect(order().slice(0, 3)).toEqual(['CCC', 'BBB', 'AAA']);
+  });
+
+  it('el botón del encabezado se activa con el teclado', async () => {
+    await renderSortable();
+    const button = screen.getByRole('button', { name: 'Rentabilidad posición' });
+    expect(button.tagName).toBe('BUTTON');
+    expect(button.getAttribute('type')).toBe('button');
   });
 });

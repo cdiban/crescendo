@@ -81,6 +81,7 @@ export type PositionView = {
   unrealizedGain: Decimal | null;
   unrealizedReturn: Decimal | null;
   totalReturn: Decimal | null;
+  positionReturn: Decimal | null;
   currentYield: Decimal | null;
   dayChange: Decimal | null;
 };
