@@ -14,21 +14,114 @@ const routes = () => [
 ];
 
 describe('AnalysisScreen — distribución', () => {
-  it('muestra por sector el peso en valor y en ingreso esperado lado a lado (top 15 + "Otros" de la API)', async () => {
+  it('muestra por sector el peso en cartera y en dividendos esperados (top 15 + "Otros" de la API)', async () => {
     const fetchMock = mockFetch(routes());
     render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
 
     const list = await screen.findByRole('list', { name: 'Distribución por sector' });
     expect(calls(fetchMock)).toContain('GET /api/v1/portfolio/allocation?by=sector&reportingCurrency=USD&limit=15');
     const items = within(list).getAllByRole('listitem');
-    expect(text(items[0]!)).toMatch(/^UtilitiesUS\$20\.000,50Valor28,66%Ingreso36,83%$/);
+    expect(text(items[0]!)).toMatch(/^UtilitiesConcentra tu rentaUS\$20\.000,50Cartera28,66%Dividendos36,83%$/);
     expect(text(items[2]!)).toMatch(/^Otros \(12\)US\$34\.793,52.*incluye US\$120,00 al costo/);
     const meters = within(items[0]!).getAllByRole('meter');
     expect(meters.map((m) => [m.getAttribute('aria-label'), m.getAttribute('aria-valuenow')])).toEqual([
-      ['Peso en valor de Utilities', '0.2866'],
-      ['Peso en ingreso de Utilities', '0.3683'],
+      ['% de tu cartera: Utilities', '0.2866'],
+      ['% de tus dividendos: Utilities', '0.3683'],
     ]);
-    expect(text(screen.getByRole('region', { name: 'Distribución' }))).toMatch(/Total US\$69\.794,02\./);
+    const help = text(screen.getByTestId('allocation-help'));
+    // Frase propia: no debe leerse como total de dividendos. La API no entrega la suma de dividendos esperados: no se muestra.
+    expect(help).toMatch(/de los próximos 12 meses\.Valor total de la cartera: US\$69\.794,02\.?Si la barra/);
+    expect(help).not.toMatch(/Total US\$/);
+    expect(help).not.toMatch(/Dividendos esperados al año:/);
+  });
+
+  it('la leyenda y el tooltip usan los nombres "% de tu cartera" y "% de tus dividendos", con los montos de la API', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const list = await screen.findByRole('list', { name: 'Distribución por sector' });
+    const region = screen.getByRole('region', { name: 'Distribución' });
+    expect(text(within(region).getByTestId('allocation-legend'))).toBe('% de tu cartera% de tus dividendos');
+    const utilities = within(list).getAllByRole('listitem')[0]!;
+    expect(utilities.getAttribute('title')).toBe(
+      'Utilities: 28,66% de tu cartera (US$20.000,50) · 36,83% de tus dividendos esperados (US$1.500,00 al año)',
+    );
+    expect(within(utilities).getAllByRole('meter').map((m) => m.getAttribute('aria-valuetext'))).toEqual([
+      '28,66% de tu cartera (US$20.000,50)',
+      '36,83% de tus dividendos esperados (US$1.500,00 al año)',
+    ]);
+  });
+
+  it('explica bajo el título qué mide cada barra, cómo leer la diferencia y que el ingreso es bruto', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    await screen.findByRole('list', { name: 'Distribución por sector' });
+    const help = text(screen.getByTestId('allocation-help'));
+    expect(help).toMatch(/% de tu cartera.*dónde está tu dinero/);
+    expect(help).toMatch(/% de tus dividendos.*de dónde vienen tus dividendos/);
+    expect(help).toMatch(/Si la barra de dividendos es más larga, tu renta depende más de ese grupo de lo que pesa en tu cartera/);
+    expect(help).toMatch(/brutos.*acciones de hoy.*dividendo anual por acción/);
+    expect(help).toMatch(/a escala del grupo más grande/);
+  });
+
+  it('las dos barras usan una escala común: el mayor peso visible (de cualquiera de las dos series) ocupa el 100 %', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const list = await screen.findByRole('list', { name: 'Distribución por sector' });
+    // Pesos visibles: .2866/.3683, .2149/.1473, .4985/.4844 → el mayor es .4985 ("Otros", serie cartera).
+    expect(list.style.getPropertyValue('--scale')).toBe('0.4985');
+    const bar = (m: HTMLElement) => m.firstElementChild as HTMLElement;
+    const meters = within(list).getAllByRole('meter');
+    const widest = meters.find((m) => m.getAttribute('aria-valuenow') === '0.4985')!;
+    expect(bar(widest).style.getPropertyValue('--w')).toBe('0.4985');
+    // El ancho es --w / --scale (CSS), así que el mayor llena la barra; ningún otro la supera.
+    expect(bar(widest).className).toMatch(/w-\[calc\(var\(--w\)\/var\(--scale\)\*100%\)\]/);
+  });
+
+  it('con todos los pesos en cero la escala no divide por cero', async () => {
+    const zero = { ...allocation('sector'), items: [{ ...allocation('sector').items[0]!, weight: '0', incomeWeight: '0.000' }] };
+    mockFetch([{ ...routes()[0]!, body: zero }, ...routes().slice(2)]);
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const list = await screen.findByRole('list', { name: 'Distribución por sector' });
+    expect(list.style.getPropertyValue('--scale')).toBe('1');
+  });
+
+  it('cada grupo muestra las barras apiladas: Cartera arriba y Dividendos abajo', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const list = await screen.findByRole('list', { name: 'Distribución por sector' });
+    const item = within(list).getAllByRole('listitem')[0]!;
+    const bars = item.querySelector('[data-slot=weight-bars]')!;
+    expect(bars.className).not.toMatch(/grid-cols-2/);
+    expect([...bars.children].map((row) => row.firstElementChild!.textContent)).toEqual(['Cartera', 'Dividendos']);
+  });
+
+  it('marca los grupos cuyas barras difieren 5 pp o más, en ambos sentidos; no marca "Otros"', async () => {
+    const item = (key: string, weight: string, incomeWeight: string) => ({ key, label: key === '__others' ? 'Otros (3)' : key, value: '100', weight, expectedAnnualIncomeGross: '10', incomeWeight, valuedAtCost: '0' });
+    const edges = {
+      ...allocation('sector'),
+      items: [item('A', '0.30', '0.35'), item('B', '0.30', '0.3499'), item('C', '0.35', '0.30'), item('D', '0.3499', '0.30'), item('__others', '0.1', '0.9')],
+    };
+    mockFetch([{ ...routes()[0]!, body: edges }, ...routes().slice(2)]);
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    const list = await screen.findByRole('list', { name: 'Distribución por sector' });
+    const badges = within(list).getAllByRole('listitem').map((li) => li.querySelector('[data-slot=badge]')?.textContent ?? null);
+    expect(badges).toEqual(['Concentra tu renta', null, 'Aporta poca renta', null, null]);
+  });
+
+  it('la tabla alternativa usa los nombres nuevos y muestra el distintivo', async () => {
+    mockFetch(routes());
+    render(<AnalysisScreen api={createApi()} reportingCurrency="USD" />);
+    await screen.findByRole('list', { name: 'Distribución por sector' });
+    const table = screen.getByRole('table', { name: 'Distribución por sector (datos)' });
+    expect(within(table).getAllByRole('columnheader').map((h) => text(h))).toEqual([
+      'Sector', 'Valor (USD)', '% de tu cartera', 'Dividendos esperados al año (USD)', '% de tus dividendos',
+    ]);
+    const rows = within(table).getAllByRole('row').slice(1).map((r) => text(r));
+    expect(rows).toEqual([
+      'UtilitiesConcentra tu rentaUS$20.000,5028,66%US$1.500,0036,83%',
+      'ConsumerAporta poca rentaUS$15.000,0021,49%US$600,0014,73%',
+      'Otros (12)US$34.793,5249,85%US$1.972,5148,44%',
+    ]);
   });
 
   it('al cambiar de dimensión no muestra los datos anteriores bajo el título nuevo mientras carga', async () => {

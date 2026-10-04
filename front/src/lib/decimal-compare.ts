@@ -30,3 +30,21 @@ export function compareDecimal(a: string, b: string): number {
   const magnitude = compareMagnitude(pa, pb);
   return pa.negative ? -magnitude : magnitude;
 }
+
+/** El decimal como entero escalado a `scale` decimales (exacto, con BigInt). */
+function scaled(value: string, scale: number): bigint {
+  const { negative, int, frac } = parts(value);
+  const n = BigInt((int || '0') + frac.padEnd(scale, '0'));
+  return negative ? -n : n;
+}
+
+/**
+ * Compara (a − b) contra c en forma exacta: negativo si a − b < c, 0 si es igual, positivo si es mayor.
+ * Sirve para umbrales sobre fracciones de la API (p. ej. diferencia de pesos ≥ 5 pp) sin errores de float.
+ * Sólo decide; no devuelve la diferencia.
+ */
+export function compareDifference(a: string, b: string, c: string): number {
+  const scale = Math.max(...[a, b, c].map((v) => parts(v).frac.length));
+  const diff = scaled(a, scale) - scaled(b, scale) - scaled(c, scale);
+  return diff === 0n ? 0 : diff < 0n ? -1 : 1;
+}

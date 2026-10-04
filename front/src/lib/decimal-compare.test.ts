@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecimal } from './decimal-compare.ts';
+import { compareDecimal, compareDifference } from './decimal-compare.ts';
 
 const sign = (n: number) => Math.sign(n);
 
@@ -36,5 +36,29 @@ describe('compareDecimal', () => {
   it('rechaza lo que no es un decimal', () => {
     expect(() => compareDecimal('1e3', '1')).toThrow();
     expect(() => compareDecimal('abc', '1')).toThrow();
+  });
+});
+
+describe('compareDifference', () => {
+  it('compara (a − b) contra c en forma exacta, con el borde incluido', () => {
+    expect(compareDifference('0.3683', '0.3183', '0.05')).toBe(0); // justo 5 pp
+    expect(sign(compareDifference('0.3683', '0.3184', '0.05'))).toBe(-1); // 4,99 pp
+    expect(sign(compareDifference('0.3684', '0.3183', '0.05'))).toBe(1);
+  });
+
+  it('funciona con distinta cantidad de decimales y diferencias negativas', () => {
+    expect(compareDifference('0.2', '0.15', '0.05')).toBe(0);
+    expect(sign(compareDifference('0.15', '0.2', '0.05'))).toBe(-1);
+    expect(compareDifference('0.15', '0.2', '-0.05')).toBe(0);
+    expect(compareDifference('1', '0.95', '.05')).toBe(0);
+  });
+
+  it('no arrastra el error de redondeo de los float (0.3 − 0.25 = 0.05 exacto)', () => {
+    expect(0.3 - 0.25 === 0.05).toBe(false);
+    expect(compareDifference('0.3', '0.25', '0.05')).toBe(0);
+  });
+
+  it('rechaza lo que no es un decimal', () => {
+    expect(() => compareDifference('x', '0', '0')).toThrow();
   });
 });
