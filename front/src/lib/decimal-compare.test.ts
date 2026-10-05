@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecimal, compareDifference } from './decimal-compare.ts';
+import { compareDecimal, compareDifference, maxDecimal } from './decimal-compare.ts';
 
 const sign = (n: number) => Math.sign(n);
 
@@ -60,5 +60,14 @@ describe('compareDifference', () => {
 
   it('rechaza lo que no es un decimal', () => {
     expect(() => compareDifference('x', '0', '0')).toThrow();
+  });
+});
+
+describe('maxDecimal', () => {
+  it('devuelve el mayor tal como vino (sin reformatear), ignorando null; sin valores, null', () => {
+    expect(maxDecimal(['0.2866', null, '0.4985', '0.49850', '-1'])).toBe('0.4985');
+    expect(maxDecimal(['0.1', '0.10000000000000000001'])).toBe('0.10000000000000000001');
+    expect(maxDecimal([null, undefined])).toBeNull();
+    expect(maxDecimal([])).toBeNull();
   });
 });

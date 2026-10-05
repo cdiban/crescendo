@@ -426,6 +426,67 @@ describe('v0.5 — distribución', () => {
   });
 });
 
+describe('v0.6.2 — portfolioWeight', () => {
+  const weights = (items: Array<Record<string, any>>) => items.map((i) => [i.symbol, i.accountId === null ? null : 'cuenta', i.portfolioWeight]);
+  const allocationWeights = async () =>
+    Object.fromEntries((await expectStatus(await ana.get('/portfolio/allocation?by=instrument&reportingCurrency=CLP'), 200)).items.map((i: Record<string, string>) => [i.label, i.weight]));
+  const sum = (items: Array<{ portfolioWeight: string | null }>) => Decimal.sum(items.map((i) => d(i.portfolioWeight!)));
+
+  test('dos monedas: pesos de la cartera en reporte que suman 1 y coinciden con /portfolio/allocation', async () => {
+    // CLP: KO 1058400, PEHUENCHE 110000 → total 1168400
+    const p = await expectStatus(await ana.get(`/positions?reportingCurrency=CLP&asOf=${ASOF}`), 200);
+    assert.deepEqual(weights(p.items), [['PEHUENCHE', null, '0.094146'], ['KO', null, '0.905854']]);
+    assert.ok(sum(p.items).sub(Decimal.ONE).abs().lte(d('0.000002')));
+    assert.deepEqual(await allocationWeights(), { KO: '0.905854', PEHUENCHE: '0.094146' });
+    // En USD los pesos son los mismos salvo redondeo de la conversión.
+    const usd = await expectStatus(await ana.get(`/positions?asOf=${ASOF}`), 200);
+    assert.ok(sum(usd.items).sub(Decimal.ONE).abs().lte(d('0.000002')));
+  });
+
+  test('una fila sin precio pesa por su costo, igual que la distribución', async () => {
+    await h.container.dataSource.query(`DELETE FROM price_quotes WHERE instrument_id = $1`, [peh.id]);
+    const p = await expectStatus(await ana.get(`/positions?reportingCurrency=CLP&asOf=${ASOF}`), 200);
+    assert.deepEqual(weights(p.items), [['PEHUENCHE', null, '0.086326'], ['KO', null, '0.913674']]);
+    assert.deepEqual(await allocationWeights(), { KO: '0.913674', PEHUENCHE: '0.086326' });
+  });
+
+  test('con filtro accountId el denominador sigue siendo la cartera completa', async () => {
+    const all = await expectStatus(await ana.get(`/positions?groupBy=account&reportingCurrency=CLP&asOf=${ASOF}`), 200);
+    const itau = row(all.items, 'PEHUENCHE').accountId;
+    for (const groupBy of ['instrument', 'account']) {
+      const p = await expectStatus(await ana.get(`/positions?accountId=${itau}&groupBy=${groupBy}&reportingCurrency=CLP&asOf=${ASOF}`), 200);
+      assert.deepEqual(p.items.map((i: Record<string, string>) => [i.symbol, i.portfolioWeight]), [['PEHUENCHE', '0.094146']], groupBy);
+      assert.ok(sum(p.items).lt(Decimal.ONE));
+    }
+  });
+
+  test('groupBy=account: peso por fila; las filas de un instrumento suman su peso por instrumento', async () => {
+    // KO también en Zesty (3 a 100 USD) y PEHUENCHE a 1568 → CLP: KO IB 9×120×980 = 1058400, KO Zesty 3×120×980 = 352800,
+    // PEHUENCHE 156800; total 1568000 → 0.675, 0.225 y 0.1 (KO por instrumento 0.9)
+    const zesty = await expectStatus(await ana.post('/accounts', { name: 'Zesty', broker: 'Zesty', baseCurrency: 'USD' }), 201);
+    await expectStatus(await ana.post('/trades', { accountId: zesty.id, instrumentId: ko.id, side: 'BUY', tradeDate: '2025-09-01', quantity: '3', price: '100' }), 201);
+    await quote(peh.id, '1568', null);
+    const byAccount = await expectStatus(await ana.get(`/positions?groupBy=account&reportingCurrency=CLP&asOf=${ASOF}`), 200);
+    const ko2 = byAccount.items.filter((i: { symbol: string }) => i.symbol === 'KO').map((i: { portfolioWeight: string }) => i.portfolioWeight).sort();
+    assert.deepEqual(ko2, ['0.225', '0.675']);
+    assert.equal(row(byAccount.items, 'PEHUENCHE').portfolioWeight, '0.1');
+    assert.equal(sum(byAccount.items).toString(), '1');
+    const byInstrument = await expectStatus(await ana.get(`/positions?reportingCurrency=CLP&asOf=${ASOF}`), 200);
+    assert.deepEqual(weights(byInstrument.items), [['PEHUENCHE', null, '0.1'], ['KO', null, '0.9']]);
+    assert.deepEqual(await allocationWeights(), { KO: '0.9', PEHUENCHE: '0.1' });
+  });
+
+  test('las posiciones cerradas dan null y no cuentan en el denominador', async () => {
+    const all = await expectStatus(await ana.get(`/positions?groupBy=account&reportingCurrency=CLP&asOf=${ASOF}`), 200);
+    const itau = row(all.items, 'PEHUENCHE').accountId;
+    await expectStatus(await ana.post('/trades', { accountId: itau, instrumentId: peh.id, side: 'SELL', tradeDate: '2025-06-01', quantity: '100', price: '1200' }), 201);
+    for (const groupBy of ['instrument', 'account']) {
+      const p = await expectStatus(await ana.get(`/positions?includeClosed=true&groupBy=${groupBy}&reportingCurrency=CLP&asOf=${ASOF}`), 200);
+      assert.deepEqual(p.items.map((i: Record<string, string>) => [i.symbol, i.quantity, i.portfolioWeight]), [['PEHUENCHE', '0', null], ['KO', '9', '1']], groupBy);
+    }
+  });
+});
+
 describe('v0.5 — P1 proyección bola de nieve', () => {
   test('defaults: aporte promedio de 12 meses sin el "Aporte no asignado" de la importación; yield neto actual', async () => {
     const ib = (await expectStatus(await ana.get('/accounts'), 200)).items.find((a: { name: string }) => a.name === 'IB');

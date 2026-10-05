@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAmountInput, formatDate, formatDateTime, formatMoney, parseAmountInput, formatRate, formatSignedPercent, formatUnitPrice, isOne, formatPercent, formatQuantity, fractionToPercent, percentToFraction } from './format.ts';
+import { formatAmountInput, formatDate, formatDateTime, formatMoney, parseAmountInput, formatRate, formatSignedPercent, formatUnitPrice, isOne, formatPercent, formatPercentFixed, formatQuantity, fractionToPercent, percentToFraction } from './format.ts';
 
 // Intl en es-CL usa espacios duros en algunos formatos; normalizamos para comparar.
 const n = (s: string) => s.replace(/ | /g, ' ');
@@ -140,5 +140,13 @@ describe('formatAmountInput', () => {
     expect(n(formatAmountInput('1634.276', 'USD'))).toBe('1.634,28');
     expect(n(formatAmountInput('1500000.4', 'CLP'))).toBe('1.500.000');
     expect(parseAmountInput(formatAmountInput('1634.276', 'USD'))).toBe('1634.28');
+  });
+});
+
+describe('formatPercentFixed', () => {
+  it('siempre con 2 decimales (pesos de cartera)', () => {
+    expect(n(formatPercentFixed('0.5'))).toBe('50,00%');
+    expect(n(formatPercentFixed('0.063'))).toBe('6,30%');
+    expect(n(formatPercentFixed('0.000449'))).toBe('0,04%');
   });
 });

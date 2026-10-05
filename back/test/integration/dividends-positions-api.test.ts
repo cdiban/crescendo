@@ -328,6 +328,8 @@ describe('posiciones', () => {
         unrealizedReturn: null,
         totalReturn: null,
         positionReturn: null,
+        // Única posición abierta, sin precio: pesa por su costo → toda la cartera.
+        portfolioWeight: '1',
         currentYield: null,
         dayChange: null,
       },

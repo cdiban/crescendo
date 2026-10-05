@@ -24,20 +24,20 @@ describe('PositionsScreen', () => {
 
     const headers = within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('columnheader').map((h) => h.textContent);
     expect(headers).toEqual([
-      'Instrumento', 'Cantidad', 'Precio', 'Valor de mercado', 'Ganancia no realizada', 'Rentabilidad total', 'Rentabilidad posición', 'Yield actual',
+      'Instrumento', 'Cantidad', 'Precio', 'Valor de mercado', '% de la cartera', 'Ganancia no realizada', 'Rentabilidad total', 'Rentabilidad posición', 'Yield actual',
       'Valor en USD', 'Efecto precio (USD)', 'Efecto cambiario (USD)',
       'Costo promedio', 'Invertido', 'Costo en USD', 'Ganancia realizada', 'Div. cobrados (neto)', 'Ingreso anual esperado', 'Yield on cost', 'Meses de pago',
     ]);
 
     expect(text(within(clp).getByRole('row', { name: /PEHUENCHE/ }))).toBe(
-      'PEHUENCHEPehuenche115$2.701$310.615$10.718+3,57%+34,65%+3,57%9,85%US$316,40US$10,90US$-12,62$2.607,8$299.897US$318,12$0$93.178$30.59010,2%may, dic',
+      'PEHUENCHEPehuenche115$2.701$310.61530,05%$10.718+3,57%+34,65%+3,57%9,85%US$316,40US$10,90US$-12,62$2.607,8$299.897US$318,12$0$93.178$30.59010,2%may, dic',
     );
     expect(text(within(usd).getByRole('row', { name: /KO/ }))).toBe(
-      'KOCoca-Cola10,5US$68,20US$716,10US$84,80+13,43%+16,1%+13,65%2,99%US$716,10US$84,80US$0,00US$60,1234US$631,30US$631,30US$0,00US$17,34US$21,423,39%abr, jul, oct, dic',
+      'KOCoca-Cola10,5US$68,20US$716,1069,36%US$84,80+13,43%+16,1%+13,65%2,99%US$716,10US$84,80US$0,00US$60,1234US$631,30US$631,30US$0,00US$17,34US$21,423,39%abr, jul, oct, dic',
     );
     // Sin precio: campos de mercado vacíos; nombre igual al símbolo no se repite.
     expect(text(within(usd).getByRole('row', { name: /BITO/ }))).toBe(
-      'BITO3Sin precio———————US$0,00US$20,00US$60,00US$60,00US$0,00US$0,00——Sin pagos',
+      'BITO3Sin precio—0,59%——————US$0,00US$20,00US$60,00US$60,00US$0,00US$0,00——Sin pagos',
     );
   });
 
@@ -288,7 +288,7 @@ describe('PositionsScreen — orden por columnas', () => {
     await renderSortable();
     const buttons = within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('button').map((b) => b.textContent);
     expect(buttons).toEqual([
-      'Ganancia no realizada', 'Rentabilidad total', 'Rentabilidad posición', 'Yield actual',
+      '% de la cartera', 'Ganancia no realizada', 'Rentabilidad total', 'Rentabilidad posición', 'Yield actual',
       'Valor en USD', 'Efecto precio (USD)', 'Efecto cambiario (USD)', 'Costo en USD', 'Yield on cost',
     ]);
     for (const name of ['Valor de mercado', 'Invertido', 'Costo promedio', 'Ganancia realizada']) {
@@ -378,5 +378,62 @@ describe('PositionsScreen — orden por columnas', () => {
     const button = screen.getByRole('button', { name: 'Rentabilidad posición' });
     expect(button.tagName).toBe('BUTTON');
     expect(button.getAttribute('type')).toBe('button');
+  });
+});
+
+describe('PositionsScreen — % de la cartera', () => {
+  const weighted = (symbol: string, currency: Currency, portfolioWeight: string | null, quantity = '10') => ({
+    ...positionsByInstrument[0]!, instrumentId: symbol, symbol, name: symbol, currency, portfolioWeight, quantity,
+  });
+  const ITEMS = [weighted('BBB', 'CLP', '0.25'), weighted('ZZZ', 'CLP', null, '0'), weighted('AAA', 'USD', '0.5'), weighted('CCC', 'USD', '0.0525')];
+
+  async function renderWeights(items = ITEMS) {
+    mockFetch([
+      { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+      { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList(items) },
+    ]);
+    render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
+    await screen.findAllByRole('rowheader');
+  }
+  const weightCell = (symbol: string) => {
+    const row = screen.getByRole('row', { name: new RegExp(`^${symbol}`) });
+    const i = within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('columnheader').findIndex((h) => h.textContent === '% de la cartera');
+    return row.children[i] as HTMLElement;
+  };
+
+  it('va después de "Valor de mercado", con 2 decimales; las cerradas muestran "—"', async () => {
+    await renderWeights();
+    expect(text(weightCell('AAA'))).toBe('50,00%');
+    expect(text(weightCell('CCC'))).toBe('5,25%');
+    expect(text(weightCell('ZZZ'))).toBe('—');
+  });
+
+  it('explica en el encabezado que el peso es sobre la cartera completa, en la moneda de reporte', async () => {
+    await renderWeights();
+    expect(header('% de la cartera').getAttribute('title')).toBe(
+      'Peso de la posición en tu cartera total (valor de mercado en USD, sin caja). Con filtro de cuenta, el peso sigue siendo sobre la cartera completa',
+    );
+  });
+
+  it('se ordena por peso: desc → asc con las cerradas (null) al final, y queda en la URL', async () => {
+    await renderWeights();
+    const button = screen.getByRole('button', { name: '% de la cartera' });
+    fireEvent.click(button);
+    expect(order()).toEqual(['AAA', 'BBB', 'CCC', 'ZZZ', 'Total CLP', 'Total USD']);
+    expect(window.location.search).toBe('?orden=portfolioWeight&dir=desc');
+    fireEvent.click(button);
+    expect(order()).toEqual(['CCC', 'BBB', 'AAA', 'ZZZ', 'Total CLP', 'Total USD']);
+  });
+
+  it('la mini barra se escala al mayor peso visible (--w / --scale en CSS)', async () => {
+    await renderWeights();
+    const bar = (symbol: string) => weightCell(symbol).querySelector<HTMLElement>('[data-slot=weight-bar]')!;
+    expect(bar('AAA').style.getPropertyValue('--w')).toBe('0.5');
+    expect(bar('CCC').style.getPropertyValue('--w')).toBe('0.0525');
+    // La escala es el mayor peso de las filas visibles (AAA, 0.5): esa barra ocupa el 100 %.
+    expect(bar('AAA').style.getPropertyValue('--scale')).toBe('0.5');
+    expect(bar('CCC').style.getPropertyValue('--scale')).toBe('0.5');
+    expect(bar('AAA').className).toMatch(/w-\[calc\(var\(--w\)\/var\(--scale\)\*100%\)\]/);
+    expect(weightCell('ZZZ').querySelector('[data-slot=weight-bar]')).toBeNull();
   });
 });

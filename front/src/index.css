@@ -65,6 +65,16 @@
   }
 }
 
+/*
+ * Densidad, con dos tokens definidos abajo en :root (y compactados sólo en escritorio):
+ * - --font-scale: tamaño de la raíz, así baja toda la letra en rem (text-sm 14 → ~13 px).
+ * - --density: espaciado de Tailwind (p-*, gap-*, h-*, w-*, size-*). Como está en rem, también baja con
+ *   --font-scale: el espaciado efectivo es density × font-scale.
+ */
+@theme {
+  --spacing: calc(0.25rem * var(--density));
+}
+
 @theme inline {
   /* Fuentes del sistema: la CSP (default-src 'self') no admite fuentes externas. */
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -115,6 +125,8 @@
 }
 
 :root {
+  --density: 1;
+  --font-scale: 1;
   --background: oklch(0.985 0.002 247);
   --foreground: oklch(0.17 0.01 255);
   --card: oklch(1 0 0);
@@ -216,5 +228,19 @@
   /* Montos alineados en columnas. */
   .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+}
+
+/*
+ * Escritorio (md+): letra 7 % más chica y espaciado algo más apretado, para ver más filas sin scroll.
+ * Mínimo 11 px: text-xs = 0,75rem × 16 × 0,93 ≈ 11,2 px. En móvil todo queda en 1 (letra y objetivos táctiles).
+ */
+@media (width >= 48rem) {
+  :root {
+    --density: 0.95;
+    --font-scale: 0.93;
+  }
+  html {
+    font-size: calc(100% * var(--font-scale));
   }
 }

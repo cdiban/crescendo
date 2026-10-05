@@ -17,5 +17,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     unstubGlobals: true,
     restoreMocks: true,
+    // index.css se lee como texto en density.test.ts; el resto del CSS sigue vacío en los tests.
+    css: { include: [/index\.css/] },
   },
 });

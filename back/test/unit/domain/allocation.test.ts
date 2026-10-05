@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Decimal } from '../../../src/domain/decimal.ts';
-import { allocate } from '../../../src/domain/allocation.ts';
+import { allocate, allocationValue, weightsByKey } from '../../../src/domain/allocation.ts';
 
 const d = Decimal.parse;
 const show = (r: ReturnType<typeof allocate>) =>
@@ -46,5 +46,45 @@ describe('allocate', () => {
     const r = allocate([{ key: 'x', label: 'X', value: d('5'), valuedAtCost: d('0'), income: d('0') }]);
     assert.deepEqual(show(r), [['x', 'X', '5', '1', '0', '0', '0']]);
     assert.deepEqual(allocate([]), { total: Decimal.ZERO, items: [] });
+  });
+});
+
+describe('allocationValue: valor de mercado en reporte, o el costo a TC actual si no hay precio', () => {
+  test('con precio usa el valor de mercado', () => {
+    const v = allocationValue(d('1080'), d('933'));
+    assert.deepEqual([v.value.toString(), v.atCost], ['1080', false]);
+  });
+
+  test('sin precio usa el costo y lo marca', () => {
+    const v = allocationValue(null, d('100000'));
+    assert.deepEqual([v.value.toString(), v.atCost], ['100000', true]);
+  });
+});
+
+describe('weightsByKey: pesos de allocate por clave', () => {
+  test('mismos pesos que allocate; las filas de una clave más fina suman el peso de la agrupada', () => {
+    // KO en dos cuentas (300 + 100) y PEHUENCHE 600 → por instrumento 0.4 / 0.6; por fila 0.3 + 0.1 = 0.4
+    const byInstrument = weightsByKey([
+      { key: 'KO', value: d('300') },
+      { key: 'PEH', value: d('600') },
+      { key: 'KO', value: d('100') },
+    ]);
+    assert.deepEqual([...byInstrument].map(([k, w]) => [k, w.toString()]), [['PEH', '0.6'], ['KO', '0.4']]);
+    const byRow = weightsByKey([
+      { key: 'IB|KO', value: d('300') },
+      { key: 'ITAU|PEH', value: d('600') },
+      { key: 'ZESTY|KO', value: d('100') },
+    ]);
+    assert.equal(byRow.get('IB|KO')!.add(byRow.get('ZESTY|KO')!).toString(), byInstrument.get('KO')!.toString());
+  });
+
+  test('con redondeo los pesos suman exactamente 1 (el residuo va al mayor)', () => {
+    const w = weightsByKey([{ key: 'a', value: d('1') }, { key: 'b', value: d('1') }, { key: 'c', value: d('1') }]);
+    assert.equal(Decimal.sum([...w.values()]).toString(), '1');
+    assert.deepEqual([...w.values()].map(String).sort(), ['0.333333', '0.333333', '0.333334']);
+  });
+
+  test('sin valor: vacío', () => {
+    assert.equal(weightsByKey([]).size, 0);
   });
 });

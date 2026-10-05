@@ -4,7 +4,7 @@ import { CalendarChart } from '../components/charts/CalendarChart.tsx';
 import { DataTableAlt } from '../components/charts/parts.tsx';
 import { DividendPerShareSection } from '../components/DividendPerShareSection.tsx';
 import { ErrorAlert, Loading, PageHeader, isZero } from '../components/ui.tsx';
-import { compareDecimal, compareDifference } from '../lib/decimal-compare.ts';
+import { compareDifference, maxDecimal } from '../lib/decimal-compare.ts';
 import { formatMoney, formatPercent } from '../lib/format.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { Badge } from '@/components/ui/badge';
@@ -49,8 +49,8 @@ export function weightGap(item: Pick<AllocationItem, 'key' | 'weight' | 'incomeW
  * (--w / --scale), así que el mayor ocupa el 100 %. Con todo en cero, 1 (sin dividir por cero).
  */
 export function barScale(items: Pick<AllocationItem, 'weight' | 'incomeWeight'>[]): string {
-  const max = items.flatMap((i) => [i.weight, i.incomeWeight]).reduce((m, v) => (compareDecimal(v, m) > 0 ? v : m), '0');
-  return isZero(max) ? '1' : max;
+  const max = maxDecimal(items.flatMap((i) => [i.weight, i.incomeWeight]));
+  return max === null || isZero(max) || max.startsWith('-') ? '1' : max;
 }
 
 function GapBadge({ item }: { item: AllocationItem }) {

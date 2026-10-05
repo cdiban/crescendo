@@ -17,7 +17,7 @@ import type {
   SnowballProjection,
   PortfolioSummary,
   PositionsResult,
-  PositionView,
+  PositionRow,
   ReportingAmounts,
 } from '../../application/use-cases/portfolio.ts';
 import type { TradeView } from '../../application/use-cases/trades.ts';
@@ -145,7 +145,7 @@ export const presentReporting = (r: ReportingAmounts) => ({
   unrealizedGain: sn(r.unrealizedGain),
 });
 
-export const presentPosition = (p: PositionView) => ({
+export const presentPosition = (p: PositionRow) => ({
   accountId: p.accountId,
   instrumentId: p.instrumentId,
   symbol: p.symbol,
@@ -176,6 +176,7 @@ export const presentPosition = (p: PositionView) => ({
   unrealizedReturn: sn(p.unrealizedReturn),
   totalReturn: sn(p.totalReturn),
   positionReturn: sn(p.positionReturn),
+  portfolioWeight: sn(p.portfolioWeight),
   currentYield: sn(p.currentYield),
   dayChange: sn(p.dayChange),
 });

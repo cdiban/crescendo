@@ -15,6 +15,11 @@ export type AllocationItem = {
 
 export const OTHERS_KEY = '__others';
 
+/** Valor con que pesa una posición abierta: de mercado en reporte o, sin precio, su costo a TC actual. */
+export function allocationValue(marketValue: Decimal | null, costBasisAtCurrentRate: Decimal): { value: Decimal; atCost: boolean } {
+  return marketValue === null ? { value: costBasisAtCurrentRate, atCost: true } : { value: marketValue, atCost: false };
+}
+
 /** Fracciones que suman exactamente 1: el residuo de redondeo va al primero (el mayor). */
 function weights(values: Decimal[]): Decimal[] {
   const total = Decimal.sum(values);
@@ -74,4 +79,10 @@ export function allocate(rows: readonly AllocationRow[], limit?: number): { tota
       },
     ],
   };
+}
+
+/** Pesos de `allocate` por clave, sin "Otros": la misma regla (y el mismo residuo) que la distribución. */
+export function weightsByKey(rows: ReadonlyArray<{ key: string; label?: string; value: Decimal }>): Map<string, Decimal> {
+  const { items } = allocate(rows.map((r) => ({ key: r.key, label: r.label ?? r.key, value: r.value, valuedAtCost: Decimal.ZERO, income: Decimal.ZERO })));
+  return new Map(items.map((i) => [i.key, i.weight]));
 }

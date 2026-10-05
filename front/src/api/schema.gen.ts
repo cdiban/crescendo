@@ -1039,6 +1039,8 @@ export interface components {
             unrealizedReturn?: components["schemas"]["Decimal"] | null;
             /** @description (unrealizedGain + realizedGain + dividendsNet) / costo total comprado */
             totalReturn?: components["schemas"]["Decimal"] | null;
+            /** @description (v0.6.2) Peso de la fila en la cartera total, fracción 0–1: valor de mercado en reporte (al costo si no tiene precio, como /portfolio/allocation) / Σ del mismo valor de **todas** las posiciones abiertas del usuario (sin caja). No depende de los filtros accountId ni groupBy: siempre contra la cartera completa. Coincide con /portfolio/allocation?by=instrument. Null en posiciones cerradas. */
+            portfolioWeight: components["schemas"]["Decimal"] | null;
             /** @description (v0.6.1) Rentabilidad sólo de la posición, sin dividendos: (unrealizedGain + realizedGain) / costo total comprado, fracción. Mismo denominador que totalReturn, así que totalReturn − positionReturn = dividendsNet / costo total comprado. Null en los mismos casos que totalReturn. */
             positionReturn: components["schemas"]["Decimal"] | null;
             /** @description annualDividendPerShare / marketPrice */

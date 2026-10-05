@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Crescendo API
-  version: 0.6.1
+  version: 0.6.2
   description: |
     Contrato de la API de Crescendo. Fuente de verdad compartida por Crescendo Back y Crescendo Front.
     Cualquier cambio se propone al orquestador (Crescendo) antes de aplicarse.
@@ -1460,7 +1460,7 @@ components:
     # ── Portafolio ──
     Position:
       type: object
-      required: [accountId, instrumentId, symbol, name, marketCode, type, sector, currency, quantity, averageCost, costBasis, realizedGain, dividendsGross, dividendsNet, annualDividendPerShare, expectedAnnualIncomeGross, yieldOnCost, firstTradeDate, paymentMonths, reporting, priceDate, priceIsIntraday, positionReturn]
+      required: [accountId, instrumentId, symbol, name, marketCode, type, sector, currency, quantity, averageCost, costBasis, realizedGain, dividendsGross, dividendsNet, annualDividendPerShare, expectedAnnualIncomeGross, yieldOnCost, firstTradeDate, paymentMonths, reporting, priceDate, priceIsIntraday, positionReturn, portfolioWeight]
       properties:
         accountId: { type: [string, 'null'], format: uuid, description: null cuando groupBy=instrument }
         instrumentId: { type: string, format: uuid }
@@ -1491,6 +1491,7 @@ components:
         unrealizedGain: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: marketValue − costBasis (moneda original) }
         unrealizedReturn: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: unrealizedGain / costBasis, fracción }
         totalReturn: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: (unrealizedGain + realizedGain + dividendsNet) / costo total comprado, fracción (equivale a "Rentabilidad" del Excel) }
+        portfolioWeight: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: '(v0.6.2) Peso de la fila en la cartera total, fracción 0–1: valor de mercado en reporte (al costo si no tiene precio, como /portfolio/allocation) / Σ del mismo valor de **todas** las posiciones abiertas del usuario (sin caja). No depende de los filtros accountId ni groupBy: siempre contra la cartera completa. Coincide con /portfolio/allocation?by=instrument. Null en posiciones cerradas.' }
         positionReturn: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: '(v0.6.1) Rentabilidad sólo de la posición, sin dividendos: (unrealizedGain + realizedGain) / costo total comprado, fracción. Mismo denominador que totalReturn, así que totalReturn − positionReturn = dividendsNet / costo total comprado. Null en los mismos casos que totalReturn.' }
         currentYield: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: annualDividendPerShare / marketPrice, fracción }
         dayChange: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: Variación % del precio vs cierre anterior, fracción }

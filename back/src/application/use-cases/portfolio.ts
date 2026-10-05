@@ -12,7 +12,7 @@ import { effectiveWithholdingRate } from '../../domain/instrument.ts';
 import { dividendsByMonth, dividendsYearOverYear, type MonthPoint, type YearTotal, type YoyYear } from '../../domain/dividend-stats.ts';
 import { dividendHealth, perSharePayments, sortHealthRows, type DividendHealth } from '../../domain/dividend-per-share.ts';
 import { buildCalendar, estimateNextDividend, type CalendarItem, type CalendarMonth } from '../../domain/dividend-calendar.ts';
-import { allocate, type AllocationItem, type AllocationRow } from '../../domain/allocation.ts';
+import { allocate, allocationValue, weightsByKey, type AllocationItem, type AllocationRow } from '../../domain/allocation.ts';
 import { simulateSnowball, type SnowballYear } from '../../domain/snowball.ts';
 import { isUnassignedImportDeposit } from '../../domain/cash-movement.ts';
 import { quantityAt } from '../../domain/positions.ts';
@@ -98,10 +98,13 @@ export type PositionTotals = {
   pricedCoverage: Decimal;
 };
 
+/** Fila de /positions: la vista más su peso en la cartera completa (null si está cerrada). */
+export type PositionRow = PositionView & { portfolioWeight: Decimal | null };
+
 export type PositionsResult = {
   reportingCurrency: Currency;
   fxAsOf: string;
-  items: PositionView[];
+  items: PositionRow[];
   totalsByCurrency: PositionTotals[];
   total: ReportingAmounts;
 };
@@ -317,13 +320,33 @@ export class Portfolio {
     return { views, instruments };
   }
 
+  /**
+   * Peso de cada fila en la cartera completa (todas las cuentas, sin caja), con la regla de la distribución:
+   * por instrumento coincide con /portfolio/allocation?by=instrument; por cuenta, o con filtro de cuenta, el peso
+   * es el de la fila cuenta × instrumento contra el mismo total.
+   */
+  async #portfolioWeights(r: Repositories, userId: string, rep: Reporter, query: PositionQuery, views: PositionView[]) {
+    const portfolio = query.groupBy === 'account' && !query.accountId ? views : (await this.#rows(r, userId, rep, { groupBy: 'account' })).views;
+    const open = portfolio.filter((p) => !p.quantity.isZero());
+    const value = (p: PositionView) => allocationValue(p.reporting.marketValue, p.reporting.costBasisAtCurrentRate).value;
+    if (query.groupBy === 'instrument' && !query.accountId) {
+      const weights = weightsByKey(open.map((p) => ({ key: p.instrumentId, label: p.symbol, value: value(p) })));
+      return (p: PositionView) => weights.get(p.instrumentId) ?? Decimal.ZERO;
+    }
+    const rowKey = (accountId: string | null | undefined, instrumentId: string) => `${accountId}|${instrumentId}`;
+    const weights = weightsByKey(open.map((p) => ({ key: rowKey(p.accountId, p.instrumentId), label: p.symbol, value: value(p) })));
+    return (p: PositionView) => weights.get(rowKey(p.accountId ?? query.accountId, p.instrumentId)) ?? Decimal.ZERO;
+  }
+
   positions(userId: string, query: PositionQuery): Promise<PositionsResult> {
     const asOf = query.asOf ?? this.#clock.today();
     return this.#uow.read(async (r) => {
       const rep = await this.#reporter(r, userId, query.reportingCurrency, asOf);
       const { views } = await this.#rows(r, userId, rep, query);
+      const weightOf = await this.#portfolioWeights(r, userId, rep, query, views);
       const items = views
         .filter((p) => query.includeClosed || !p.quantity.isZero())
+        .map((p): PositionRow => ({ ...p, portfolioWeight: p.quantity.isZero() ? null : weightOf(p) }))
         .sort((a, b) =>
           a.currency !== b.currency
             ? a.currency < b.currency ? -1 : 1
@@ -589,8 +612,7 @@ export class Portfolio {
       const rows: AllocationRow[] = views
         .filter((p) => !p.quantity.isZero())
         .map((p) => {
-          const atCost = p.reporting.marketValue === null;
-          const value = p.reporting.marketValue ?? p.reporting.costBasisAtCurrentRate;
+          const { value, atCost } = allocationValue(p.reporting.marketValue, p.reporting.costBasisAtCurrentRate);
           return { ...group(p), value, valuedAtCost: atCost ? value : Decimal.ZERO, income: p.reporting.expectedAnnualIncomeGross ?? Decimal.ZERO };
         });
       return { by: query.by, reportingCurrency: rep.currency, ...allocate(rows, query.limit) };

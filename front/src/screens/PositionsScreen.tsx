@@ -1,14 +1,14 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import type { Api, Currency, Position, PositionList } from '../api/client.ts';
 import { DataTable } from '../components/DataTable.tsx';
 import { CheckboxField, FormField } from '../components/form.tsx';
 import { StatStrip } from '../components/stats.tsx';
 import { ErrorAlert, PageHeader, Signed, SignedPercent, isZero, orDash } from '../components/ui.tsx';
-import { formatDate, formatDateTime, formatMoney, formatPercent, formatQuantity, formatUnitPrice, isOne, monthName } from '../lib/format.ts';
+import { formatDate, formatDateTime, formatMoney, formatPercent, formatPercentFixed, formatQuantity, formatUnitPrice, isOne, monthName } from '../lib/format.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useAutoRefresh } from '../lib/useAutoRefresh.ts';
-import { compareDecimal } from '../lib/decimal-compare.ts';
+import { compareDecimal, maxDecimal } from '../lib/decimal-compare.ts';
 import { navigate, useSearch } from '../router.tsx';
 import { REFRESH_MS } from './SummaryScreen.tsx';
 import { Card } from '@/components/ui/card';
@@ -17,7 +17,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import { cn } from '@/lib/utils';
 
 const NUM = 'text-right tabular-nums';
-const COLUMNS = 19;
+const COLUMNS = 20;
 const RC = 'bg-accent/40';
 
 /**
@@ -25,6 +25,7 @@ const RC = 'bg-accent/40';
  * Las de moneda original no se ordenan: mezclarían CLP con USD. La clave es la que va en ?orden=.
  */
 const SORT_KEYS = {
+  portfolioWeight: (p: Position) => p.portfolioWeight,
   unrealizedReturn: (p: Position) => p.unrealizedReturn,
   totalReturn: (p: Position) => p.totalReturn,
   positionReturn: (p: Position) => p.positionReturn,
@@ -98,6 +99,9 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
   const groups = new Map<Currency, Position[]>();
   for (const p of data?.items ?? []) groups.set(p.currency, [...(groups.get(p.currency) ?? []), p]);
   const rc = data?.reportingCurrency ?? reportingCurrency;
+  // Escala común de las mini barras de peso: el mayor peso visible ocupa el 100 % (el ancho lo calcula CSS).
+  const weightScale = maxDecimal((data?.items ?? []).map((p) => p.portfolioWeight));
+  const scale = weightScale === null || isZero(weightScale) ? '1' : weightScale;
   const sortHead = (key: SortKey, label: ReactNode, props: { className?: string; title?: string; buttonTitle?: string } = {}) => (
     <SortableHead sortKey={key} sort={sort} onSort={cycleSort} {...props}>
       {label}
@@ -138,6 +142,10 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
               {/* Primero lo de mercado (cabe a 1280 px); a la derecha, con scroll, reporte y costos. */}
               <TableHead scope="col" className={NUM}>Precio</TableHead>
               <TableHead scope="col" className={NUM}>Valor de mercado</TableHead>
+              {/* Junto al valor de mercado y visible sin scroll horizontal: es la columna para balancear la cartera. */}
+              {sortHead('portfolioWeight', '% de la cartera', {
+                title: `Peso de la posición en tu cartera total (valor de mercado en ${rc}, sin caja). Con filtro de cuenta, el peso sigue siendo sobre la cartera completa`,
+              })}
               {sortHead('unrealizedReturn', 'Ganancia no realizada', { buttonTitle: 'Ordenar por % de ganancia no realizada' })}
               {sortHead('totalReturn', 'Rentabilidad total', { title: 'Incluye dividendos cobrados' })}
               {sortHead('positionReturn', 'Rentabilidad posición', {
@@ -161,7 +169,7 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
             <>
               <TableBody aria-label="Posiciones ordenadas">
                 {sortPositions(data?.items ?? [], sort).map((p) => (
-                  <PositionRow key={p.instrumentId} position={p} />
+                  <PositionRow key={p.instrumentId} position={p} scale={scale} />
                 ))}
               </TableBody>
               <TableBody aria-label="Totales por moneda">
@@ -179,7 +187,7 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
                   </TableCell>
                 </TableRow>
                 {items.map((p) => (
-                  <PositionRow key={p.instrumentId} position={p} />
+                  <PositionRow key={p.instrumentId} position={p} scale={scale} />
                 ))}
                 <GroupTotals totals={data?.totalsByCurrency.find((t) => t.currency === currency)} />
               </TableBody>
@@ -238,7 +246,7 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
   );
 }
 
-function PositionRow({ position: p }: { position: Position }) {
+function PositionRow({ position: p, scale }: { position: Position; scale: string }) {
   return (
     <TableRow data-closed={isZero(p.quantity) || undefined} className="data-closed:text-muted-foreground">
       <TableHead scope="row" className="h-auto py-2">
@@ -248,6 +256,7 @@ function PositionRow({ position: p }: { position: Position }) {
       <TableCell className={NUM}>{formatQuantity(p.quantity)}</TableCell>
       <PriceCell position={p} />
       <TableCell className={`${NUM} font-medium`}>{orDash(p.marketValue, (v) => formatMoney(v, p.currency))}</TableCell>
+      <TableCell className={NUM}>{orDash(p.portfolioWeight, (w) => <WeightCell weight={w} scale={scale} />)}</TableCell>
       <TableCell className={NUM}>
         {p.unrealizedGain == null ? (
           '—'
@@ -285,6 +294,22 @@ function PositionRow({ position: p }: { position: Position }) {
       <TableCell className={NUM}>{orDash(p.yieldOnCost, formatPercent)}</TableCell>
       <TableCell>{paymentMonths(p.paymentMonths)}</TableCell>
     </TableRow>
+  );
+}
+
+/** Peso con una mini barra detrás del número, a escala del mayor peso visible (--w / --scale en CSS, sin aritmética en JS). */
+function WeightCell({ weight, scale }: { weight: string; scale: string }) {
+  return (
+    <span className="relative inline-block min-w-16 pb-1">
+      {formatPercentFixed(weight)}
+      <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1 overflow-hidden rounded-full bg-muted">
+        <span
+          data-slot="weight-bar"
+          className="absolute inset-y-0 right-0 w-[calc(var(--w)/var(--scale)*100%)] rounded-full bg-chart-1"
+          style={{ '--w': weight, '--scale': scale } as CSSProperties}
+        />
+      </span>
+    </span>
   );
 }
 
@@ -340,6 +365,7 @@ function GroupTotals({ totals }: { totals: PositionList['totalsByCurrency'][numb
           <span className="block text-xs font-normal text-muted-foreground">{formatPercent(totals.pricedCoverage)} con precio</span>
         )}
       </TableCell>
+      <TableCell />
       <TableCell className={NUM}>
         <Signed amount={totals.unrealizedGain} currency={totals.currency} colorPositive />
       </TableCell>
@@ -375,7 +401,7 @@ function PriceCell({ position: p }: { position: Position }) {
   const source = p.priceSource === 'MANUAL' ? 'Precio manual' : 'Precio';
   return (
     <TableCell className={NUM} title={priceTitle(p, source)}>
-      {p.priceSource === 'MANUAL' && <span className="mr-1 rounded bg-info px-1 text-[10px] text-info-foreground uppercase">manual</span>}
+      {p.priceSource === 'MANUAL' && <span className="mr-1 rounded bg-info px-1 text-[11px] text-info-foreground uppercase">manual</span>}
       <span>{formatUnitPrice(p.marketPrice, p.currency)}</span>
     </TableCell>
   );

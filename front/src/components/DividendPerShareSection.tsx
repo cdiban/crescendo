@@ -280,7 +280,7 @@ function PerShareChart({ row }: { row: DividendPerShareRow }) {
               {data.map((d) => (
                 <Cell key={d.year} fill="var(--color-perShare)" fillOpacity={d.partial ? 0.35 : 1} />
               ))}
-              <LabelList dataKey="label" position="top" className="fill-foreground text-[10px]" />
+              <LabelList dataKey="label" position="top" className="fill-foreground text-[11px]" />
             </Bar>
           </BarChart>
         </ChartContainer>

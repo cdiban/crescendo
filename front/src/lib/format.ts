@@ -67,6 +67,12 @@ export function formatPercent(fraction: string): string {
   return percentFormat.format(asNumeric(fraction));
 }
 
+const fixedPercentFormat = new Intl.NumberFormat('es-CL', { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Fracción como porcentaje con 2 decimales fijos ("0.5" → "50,00%"): pesos que se comparan en columna. */
+export function formatPercentFixed(fraction: string): string {
+  return fixedPercentFormat.format(asNumeric(fraction));
+}
+
 const signedPercentFormat = new Intl.NumberFormat('es-CL', { style: 'percent', maximumFractionDigits: 2, signDisplay: 'exceptZero' });
 /** Fracción con signo explícito ("0.0041" → "+0,41%"): variaciones y rentabilidades. */
 export function formatSignedPercent(fraction: string): string {

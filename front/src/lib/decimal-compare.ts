@@ -48,3 +48,10 @@ export function compareDifference(a: string, b: string, c: string): number {
   const diff = scaled(a, scale) - scaled(b, scale) - scaled(c, scale);
   return diff === 0n ? 0 : diff < 0n ? -1 : 1;
 }
+
+/** El mayor de los decimales (tal como vino), ignorando null; null si no hay ninguno. Para escalas de barras. */
+export function maxDecimal(values: (string | null | undefined)[]): string | null {
+  let max: string | null = null;
+  for (const v of values) if (v != null && (max === null || compareDecimal(v, max) > 0)) max = v;
+  return max;
+}
