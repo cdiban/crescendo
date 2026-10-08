@@ -56,6 +56,15 @@ describe('Layout', () => {
     await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Menú' })).toBeNull());
   });
 
+  it('el contenido ocupa todo el ancho (sin max-w) con el margen del token --page-gutter', () => {
+    mockFetch([health]);
+    renderLayout();
+    const content = screen.getByText('contenido').parentElement!;
+    expect(content.className).not.toMatch(/max-w|mx-auto|container/);
+    expect(content.className).toMatch(/\bp-\(--page-gutter\)/);
+    expect(screen.getByRole('banner').className).toMatch(/\bpx-\(--page-gutter\)/);
+  });
+
   it('incluye el selector de tema', () => {
     mockFetch([health]);
     renderLayout();

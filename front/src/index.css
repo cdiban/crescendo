@@ -73,6 +73,8 @@
  */
 @theme {
   --spacing: calc(0.25rem * var(--density));
+  /* Monitores muy anchos (2200 px): p. ej. 8 tarjetas por fila en el Resumen. */
+  --breakpoint-3xl: 137.5rem;
 }
 
 @theme inline {
@@ -127,6 +129,8 @@
 :root {
   --density: 1;
   --font-scale: 1;
+  /* Margen lateral de las pantallas (contenido a ancho completo): 16 px en móvil. */
+  --page-gutter: calc(var(--spacing) * 4);
   --background: oklch(0.985 0.002 247);
   --foreground: oklch(0.17 0.01 255);
   --card: oklch(1 0 0);
@@ -239,6 +243,8 @@
   :root {
     --density: 0.95;
     --font-scale: 0.93;
+    /* ~21 px: 6 unidades de espaciado, escaladas con --density y --font-scale. */
+    --page-gutter: calc(var(--spacing) * 6);
   }
   html {
     font-size: calc(100% * var(--font-scale));

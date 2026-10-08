@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { PositionsScreen } from './PositionsScreen.tsx';
 import { createApi } from '../api/client.ts';
 import { calls, mockFetch } from '../test/http.ts';
 import { ITAU, accounts, positionList, positionsByInstrument } from '../test/fixtures.ts';
 import type { Currency } from '../api/client.ts';
+import { positionColumnHelp } from '../lib/column-help.ts';
 
 const text = (el: HTMLElement) => (el.textContent ?? '').replace(/ /g, ' ');
 
@@ -69,17 +70,16 @@ describe('PositionsScreen', () => {
     expect(within(pehuenche).getByText('+34,65%').dataset.tone).toBe('positive');
   });
 
-  it('explica en el encabezado qué incluye cada rentabilidad', async () => {
+  it('los encabezados de rentabilidad ya no usan title', async () => {
     mockFetch([
       { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
       { method: 'GET', path: '/api/v1/positions', status: 200, body: positionList() },
     ]);
     render(<PositionsScreen api={createApi()} reportingCurrency="USD" />);
     await screen.findByRole('rowgroup', { name: 'Posiciones USD' });
-    expect(screen.getByRole('columnheader', { name: 'Rentabilidad total' }).getAttribute('title')).toBe('Incluye dividendos cobrados');
-    expect(screen.getByRole('columnheader', { name: 'Rentabilidad posición' }).getAttribute('title')).toBe(
-      'Ganancia por precio (no realizada + realizada) sobre lo invertido, sin dividendos',
-    );
+    // Sin title: un solo patrón (Tooltip con la fórmula, ver "ayuda por columna").
+    expect(screen.getByRole('columnheader', { name: /^Rentabilidad total/ }).hasAttribute('title')).toBe(false);
+    expect(screen.getByRole('columnheader', { name: /^Rentabilidad posición/ }).hasAttribute('title')).toBe(false);
   });
 
   it('muestra la fecha de negocio del precio: con hora sólo si es intradía; marca los manuales', async () => {
@@ -281,18 +281,23 @@ async function renderSortable() {
   await screen.findAllByRole('rowheader');
 }
 const order = () => within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('rowheader').map((h) => h.textContent);
-const header = (name: string) => screen.getByRole('columnheader', { name });
+// Por texto visible: el nombre accesible del th incluye además el botón de ayuda ("Cómo se calcula: …").
+const header = (name: string) => screen.getAllByRole('columnheader').find((th) => th.textContent === name)!;
 
 describe('PositionsScreen — orden por columnas', () => {
   it('ordena sólo columnas de porcentaje y de moneda de reporte; las de moneda original no', async () => {
     await renderSortable();
-    const buttons = within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('button').map((b) => b.textContent);
+    const buttons = within(screen.getByRole('region', { name: 'Posiciones' }))
+      .getAllByRole('button')
+      .filter((b) => !b.getAttribute('aria-label')?.startsWith('Cómo se calcula'))
+      .map((b) => b.textContent);
     expect(buttons).toEqual([
       '% de la cartera', 'Ganancia no realizada', 'Rentabilidad total', 'Rentabilidad posición', 'Yield actual',
       'Valor en USD', 'Efecto precio (USD)', 'Efecto cambiario (USD)', 'Costo en USD', 'Yield on cost',
     ]);
     for (const name of ['Valor de mercado', 'Invertido', 'Costo promedio', 'Ganancia realizada']) {
-      expect(within(header(name)).queryByRole('button')).toBeNull();
+      // Sólo tiene el botón de ayuda, no uno de ordenar.
+      expect(within(header(name)).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([`Cómo se calcula: ${name}`]);
       expect(header(name).hasAttribute('aria-sort')).toBe(false);
     }
     // La ganancia no realizada se ordena por su porcentaje (comparable entre monedas).
@@ -408,11 +413,11 @@ describe('PositionsScreen — % de la cartera', () => {
     expect(text(weightCell('ZZZ'))).toBe('—');
   });
 
-  it('explica en el encabezado que el peso es sobre la cartera completa, en la moneda de reporte', async () => {
+  it('explica en la ayuda del encabezado que el peso es sobre la cartera completa (sin title)', async () => {
     await renderWeights();
-    expect(header('% de la cartera').getAttribute('title')).toBe(
-      'Peso de la posición en tu cartera total (valor de mercado en USD, sin caja). Con filtro de cuenta, el peso sigue siendo sobre la cartera completa',
-    );
+    expect(header('% de la cartera').hasAttribute('title')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Cómo se calcula: % de la cartera' }));
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/Con filtro de cuenta, el peso sigue siendo sobre tu cartera completa/);
   });
 
   it('se ordena por peso: desc → asc con las cerradas (null) al final, y queda en la URL', async () => {
@@ -435,5 +440,71 @@ describe('PositionsScreen — % de la cartera', () => {
     expect(bar('CCC').style.getPropertyValue('--scale')).toBe('0.5');
     expect(bar('AAA').className).toMatch(/w-\[calc\(var\(--w\)\/var\(--scale\)\*100%\)\]/);
     expect(weightCell('ZZZ').querySelector('[data-slot=weight-bar]')).toBeNull();
+  });
+});
+
+describe('PositionsScreen — ayuda por columna (fórmula)', () => {
+  async function renderList(rc: Currency = 'USD') {
+    mockFetch([
+      { method: 'GET', path: '/api/v1/accounts', status: 200, body: { items: accounts } },
+      { method: 'GET', path: '/api/v1/positions', status: 200, body: { ...positionList(), reportingCurrency: rc } },
+    ]);
+    render(<PositionsScreen api={createApi()} reportingCurrency={rc} />);
+    await screen.findAllByRole('rowheader');
+  }
+  const helpButtons = () => within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('button', { name: /^Cómo se calcula: / });
+
+  it('cada columna de datos tiene su ayuda, con el texto del módulo column-help', async () => {
+    await renderList();
+    const names = helpButtons().map((b) => b.getAttribute('aria-label')!.replace('Cómo se calcula: ', ''));
+    expect(names).toEqual([
+      'Cantidad', 'Precio', 'Valor de mercado', '% de la cartera', 'Ganancia no realizada', 'Rentabilidad total', 'Rentabilidad posición',
+      'Yield actual', 'Valor en USD', 'Efecto precio (USD)', 'Efecto cambiario (USD)', 'Costo promedio', 'Invertido', 'Costo en USD',
+      'Ganancia realizada', 'Div. cobrados (neto)', 'Ingreso anual esperado', 'Yield on cost', 'Meses de pago',
+    ]);
+    // Ninguna columna usa title como ayuda.
+    for (const th of within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('columnheader')) expect(th.hasAttribute('title')).toBe(false);
+  });
+
+  it('los encabezados pueden partirse en 2 líneas: el ancho de la columna lo fija el dato, no el título', async () => {
+    await renderList();
+    for (const th of within(screen.getByRole('region', { name: 'Posiciones' })).getAllByRole('columnheader').slice(1)) {
+      expect(th.className).toMatch(/\bwhitespace-normal\b/);
+    }
+  });
+
+  it('se abre con hover y con foco de teclado', async () => {
+    await renderList();
+    const fx = screen.getByRole('button', { name: 'Cómo se calcula: Efecto cambiario (USD)' });
+    // Base UI abre el hover al detectar el puntero en reposo sobre el trigger (mousemove).
+    fireEvent.pointerEnter(fx, { pointerType: 'mouse' });
+    fireEvent.mouseEnter(fx);
+    fireEvent.mouseMove(fx);
+    expect((await screen.findByRole('tooltip')).textContent).toBe(positionColumnHelp('fxEffect', 'USD'));
+    fireEvent.pointerLeave(fx, { pointerType: 'mouse' });
+    fireEvent.mouseLeave(fx);
+    await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
+
+    // Foco de teclado: Tab y luego el foco en el trigger.
+    const qty = screen.getByRole('button', { name: 'Cómo se calcula: Cantidad' });
+    fireEvent.keyDown(document.body, { key: 'Tab' });
+    act(() => qty.focus());
+    expect((await screen.findByRole('tooltip')).textContent).toBe(positionColumnHelp('quantity', 'USD'));
+  });
+
+  it('se abre al tocar (clic) y usa la moneda de reporte vigente', async () => {
+    await renderList('CLP');
+    fireEvent.click(screen.getByRole('button', { name: 'Cómo se calcula: Valor en CLP' }));
+    expect((await screen.findByRole('tooltip')).textContent).toBe('Valor de mercado convertido a CLP al tipo de cambio actual.');
+  });
+
+  it('ordenar sigue funcionando con la ayuda presente (y la ayuda no ordena)', async () => {
+    await renderList();
+    fireEvent.click(screen.getByRole('button', { name: 'Cómo se calcula: Rentabilidad posición' }));
+    await screen.findByRole('tooltip');
+    expect(header('Rentabilidad posición').getAttribute('aria-sort')).toBe('none');
+    fireEvent.click(screen.getByRole('button', { name: 'Rentabilidad posición' }));
+    expect(header('Rentabilidad posición').getAttribute('aria-sort')).toBe('descending');
+    expect(window.location.search).toBe('?orden=positionReturn&dir=desc');
   });
 });

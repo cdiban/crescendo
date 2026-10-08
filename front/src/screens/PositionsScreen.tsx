@@ -8,6 +8,8 @@ import { ErrorAlert, PageHeader, Signed, SignedPercent, isZero, orDash } from '.
 import { formatDate, formatDateTime, formatMoney, formatPercent, formatPercentFixed, formatQuantity, formatUnitPrice, isOne, monthName } from '../lib/format.ts';
 import { useAsync } from '../lib/useAsync.ts';
 import { useAutoRefresh } from '../lib/useAutoRefresh.ts';
+import { HelpTip } from '../components/HelpTip.tsx';
+import { positionColumnHelp, type PositionColumn } from '../lib/column-help.ts';
 import { compareDecimal, maxDecimal } from '../lib/decimal-compare.ts';
 import { navigate, useSearch } from '../router.tsx';
 import { REFRESH_MS } from './SummaryScreen.tsx';
@@ -19,6 +21,8 @@ import { cn } from '@/lib/utils';
 const NUM = 'text-right tabular-nums';
 const COLUMNS = 20;
 const RC = 'bg-accent/40';
+/** Encabezados en hasta 2 líneas: el ancho de la columna lo fija el dato, no el título (caben más columnas sin scroll). */
+const HEAD = 'h-auto min-w-28 py-1.5 align-bottom leading-tight whitespace-normal';
 
 /**
  * Columnas ordenables: porcentajes y montos en moneda de reporte (comparables entre filas).
@@ -102,10 +106,17 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
   // Escala común de las mini barras de peso: el mayor peso visible ocupa el 100 % (el ancho lo calcula CSS).
   const weightScale = maxDecimal((data?.items ?? []).map((p) => p.portfolioWeight));
   const scale = weightScale === null || isZero(weightScale) ? '1' : weightScale;
-  const sortHead = (key: SortKey, label: ReactNode, props: { className?: string; title?: string; buttonTitle?: string } = {}) => (
-    <SortableHead sortKey={key} sort={sort} onSort={cycleSort} {...props}>
-      {label}
-    </SortableHead>
+  const help = (column: PositionColumn) => positionColumnHelp(column, rc);
+  const sortHead = (key: SortKey, column: PositionColumn, label: string, props: { className?: string; buttonTitle?: string } = {}) => (
+    <SortableHead sortKey={key} sort={sort} onSort={cycleSort} help={help(column)} label={label} {...props} />
+  );
+  const plainHead = (column: PositionColumn, label: string, className = NUM) => (
+    <TableHead scope="col" className={cn(HEAD, className)}>
+      <span className={cn('inline-flex items-center gap-1', className === NUM && 'justify-end')}>
+        {label}
+        <HelpTip label={label}>{help(column)}</HelpTip>
+      </span>
+    </TableHead>
   );
 
   return (
@@ -138,31 +149,27 @@ export function PositionsScreen({ api, reportingCurrency }: { api: Api; reportin
           <TableHeader>
             <TableRow>
               <TableHead scope="col">Instrumento</TableHead>
-              <TableHead scope="col" className={NUM}>Cantidad</TableHead>
+              {plainHead('quantity', 'Cantidad')}
               {/* Primero lo de mercado (cabe a 1280 px); a la derecha, con scroll, reporte y costos. */}
-              <TableHead scope="col" className={NUM}>Precio</TableHead>
-              <TableHead scope="col" className={NUM}>Valor de mercado</TableHead>
+              {plainHead('marketPrice', 'Precio')}
+              {plainHead('marketValue', 'Valor de mercado')}
               {/* Junto al valor de mercado y visible sin scroll horizontal: es la columna para balancear la cartera. */}
-              {sortHead('portfolioWeight', '% de la cartera', {
-                title: `Peso de la posición en tu cartera total (valor de mercado en ${rc}, sin caja). Con filtro de cuenta, el peso sigue siendo sobre la cartera completa`,
-              })}
-              {sortHead('unrealizedReturn', 'Ganancia no realizada', { buttonTitle: 'Ordenar por % de ganancia no realizada' })}
-              {sortHead('totalReturn', 'Rentabilidad total', { title: 'Incluye dividendos cobrados' })}
-              {sortHead('positionReturn', 'Rentabilidad posición', {
-                title: 'Ganancia por precio (no realizada + realizada) sobre lo invertido, sin dividendos',
-              })}
-              {sortHead('currentYield', 'Yield actual')}
-              {sortHead('reportingMarketValue', <>Valor en {rc}</>, { className: 'bg-accent!' })}
-              {sortHead('priceEffect', <>Efecto precio ({rc})</>, { className: 'bg-accent!' })}
-              {sortHead('fxEffect', <>Efecto cambiario ({rc})</>, { className: 'bg-accent!' })}
-              <TableHead scope="col" className={NUM}>Costo promedio</TableHead>
-              <TableHead scope="col" className={NUM}>Invertido</TableHead>
-              {sortHead('reportingCostBasis', <>Costo en {rc}</>, { className: 'bg-accent!' })}
-              <TableHead scope="col" className={NUM}>Ganancia realizada</TableHead>
-              <TableHead scope="col" className={NUM}>Div. cobrados (neto)</TableHead>
-              <TableHead scope="col" className={NUM}>Ingreso anual esperado</TableHead>
-              {sortHead('yieldOnCost', 'Yield on cost')}
-              <TableHead scope="col">Meses de pago</TableHead>
+              {sortHead('portfolioWeight', 'portfolioWeight', '% de la cartera')}
+              {sortHead('unrealizedReturn', 'unrealizedGain', 'Ganancia no realizada', { buttonTitle: 'Ordenar por % de ganancia no realizada' })}
+              {sortHead('totalReturn', 'totalReturn', 'Rentabilidad total')}
+              {sortHead('positionReturn', 'positionReturn', 'Rentabilidad posición')}
+              {sortHead('currentYield', 'currentYield', 'Yield actual')}
+              {sortHead('reportingMarketValue', 'reportingMarketValue', `Valor en ${rc}`, { className: 'bg-accent!' })}
+              {sortHead('priceEffect', 'priceEffect', `Efecto precio (${rc})`, { className: 'bg-accent!' })}
+              {sortHead('fxEffect', 'fxEffect', `Efecto cambiario (${rc})`, { className: 'bg-accent!' })}
+              {plainHead('averageCost', 'Costo promedio')}
+              {plainHead('costBasis', 'Invertido')}
+              {sortHead('reportingCostBasis', 'reportingCostBasis', `Costo en ${rc}`, { className: 'bg-accent!' })}
+              {plainHead('realizedGain', 'Ganancia realizada')}
+              {plainHead('dividendsNet', 'Div. cobrados (neto)')}
+              {plainHead('expectedAnnualIncomeGross', 'Ingreso anual esperado')}
+              {sortHead('yieldOnCost', 'yieldOnCost', 'Yield on cost')}
+              {plainHead('paymentMonths', 'Meses de pago', '')}
             </TableRow>
           </TableHeader>
           {sort ? (
@@ -313,40 +320,43 @@ function WeightCell({ weight, scale }: { weight: string; scale: string }) {
   );
 }
 
-/** Encabezado ordenable: botón con flecha y aria-sort en el th. El title del th explica la columna. */
+/** Encabezado ordenable: botón con flecha y aria-sort en el th; al lado, la ayuda (i) con la fórmula, separada del botón. */
 function SortableHead({
   sortKey,
   sort,
   onSort,
   className,
-  title,
   buttonTitle,
-  children,
+  label,
+  help,
 }: {
   sortKey: SortKey;
   sort: Sort | null;
   onSort: (key: SortKey) => void;
   className?: string;
-  title?: string;
   buttonTitle?: string;
-  children: ReactNode;
+  label: string;
+  help: string;
 }) {
   const dir = sort?.key === sortKey ? sort.dir : null;
   const Icon = dir === 'desc' ? ArrowDown : dir === 'asc' ? ArrowUp : ArrowUpDown;
   return (
-    <TableHead scope="col" className={cn(NUM, className)} title={title} aria-sort={dir === 'desc' ? 'descending' : dir === 'asc' ? 'ascending' : 'none'}>
+    <TableHead scope="col" className={cn(HEAD, NUM, className)} aria-sort={dir === 'desc' ? 'descending' : dir === 'asc' ? 'ascending' : 'none'}>
+      <span className="inline-flex items-center justify-end gap-1">
       <button
         type="button"
         title={buttonTitle}
         onClick={() => onSort(sortKey)}
-        className="group/sort -mx-1 inline-flex items-center gap-1 rounded px-1 font-medium hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        className="group/sort -mx-1 inline-flex items-center gap-1 rounded px-1 text-right font-medium hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
       >
-        {children}
+        {label}
         <Icon
           aria-hidden="true"
           className={cn('size-3.5 shrink-0', dir ? 'text-primary' : 'text-muted-foreground/50 group-hover/sort:text-muted-foreground')}
         />
       </button>
+      <HelpTip label={label}>{help}</HelpTip>
+      </span>
     </TableHead>
   );
 }

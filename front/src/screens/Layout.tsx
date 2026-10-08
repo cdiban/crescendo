@@ -90,7 +90,7 @@ export function Layout({ api, user, reportingCurrency, onReportingCurrencyChange
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-3 md:px-5">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-(--page-gutter)">
           <Button variant="ghost" size="icon" className="md:hidden" aria-label="Abrir menú" onClick={() => setMenuOpen(true)}>
             <Menu />
           </Button>
@@ -124,13 +124,14 @@ export function Layout({ api, user, reportingCurrency, onReportingCurrencyChange
         </header>
 
         {error && (
-          <div className="shrink-0 px-3 pt-3 md:px-5">
+          <div className="shrink-0 px-(--page-gutter) pt-3">
             <ErrorAlert error={error} />
           </div>
         )}
 
         <main className="min-h-0 flex-1 overflow-auto">
-          <div className="mx-auto flex h-full w-full max-w-[1400px] flex-col gap-4 p-3 md:p-5">{children}</div>
+          {/* Ancho completo: sin max-w; sólo el margen del token --page-gutter. */}
+          <div className="flex h-full w-full flex-col gap-4 p-(--page-gutter)">{children}</div>
         </main>
       </div>
 

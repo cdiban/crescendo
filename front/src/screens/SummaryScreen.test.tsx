@@ -30,6 +30,15 @@ describe('SummaryScreen', () => {
     expect(text(card('Ganancia realizada'))).toMatch(/US\$204,10/);
   });
 
+  it('en pantallas muy anchas (≥ 2200 px) la grilla pasa a 8 columnas: 8 tarjetas en una fila y las anchas (2 columnas) en la siguiente', async () => {
+    mockFetch(routes());
+    render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);
+    const grid = (await screen.findByRole('region', { name: 'Capital aportado' })).parentElement!;
+    expect(grid.className).toMatch(/xl:grid-cols-4/);
+    expect(grid.className).toMatch(/\b3xl:grid-cols-8\b/);
+    expect(card('Dividendos').className).toMatch(/xl:col-span-2/);
+  });
+
   it('muestra patrimonio, valor de mercado, ganancia no realizada desglosada y ganancia total vs capital aportado', async () => {
     mockFetch(routes());
     render(<SummaryScreen api={createApi()} reportingCurrency="USD" />);

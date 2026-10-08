@@ -22,6 +22,12 @@ describe('densidad y escala de letra (index.css)', () => {
     expect(css.slice(0, css.indexOf('@media (width >= 48rem)'))).not.toMatch(/html\s*\{[^}]*font-size/);
   });
 
+  it('el margen de página (--page-gutter) sale del espaciado: 4 unidades en móvil (16 px), 6 en escritorio', () => {
+    const root = css.slice(css.indexOf(':root {'), css.indexOf('}', css.indexOf(':root {')));
+    expect(root).toMatch(/--page-gutter:\s*calc\(var\(--spacing\) \* 4\)/);
+    expect(desktop).toMatch(/--page-gutter:\s*calc\(var\(--spacing\) \* 6\)/);
+  });
+
   it('en escritorio nada queda bajo 11 px: text-xs (0,75rem) escalado y tamaños fijos del código', () => {
     const scale = token(desktop, 'font-scale');
     expect(0.75 * 16 * scale).toBeGreaterThanOrEqual(11);
