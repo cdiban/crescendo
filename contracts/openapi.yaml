@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Crescendo API
-  version: 0.6.2
+  version: 0.6.3
   description: |
     Contrato de la API de Crescendo. Fuente de verdad compartida por Crescendo Back y Crescendo Front.
     Cualquier cambio se propone al orquestador (Crescendo) antes de aplicarse.
@@ -437,6 +437,9 @@ paths:
       description: |
         `groups`: por moneda original. `reporting` (v0.3): todos los dividendos convertidos a la moneda de reporte al tipo de cambio
         de su fecha de pago (los ANNOUNCED con fecha futura usan el último disponible).
+        (v0.6.3) Cada nivel (fila, grupo y `reporting`) trae además `monthlyAnnouncedGross` / `monthlyAnnouncedNet`: la parte ANNOUNCED
+        (por cobrar) de cada mes, ya incluida en `monthlyGross` / `monthlyNet`. Con `status=PAID` son todo "0"; con `status=ANNOUNCED`
+        son iguales a los montos del mes. Sirven para marcar en la UI qué está cobrado y qué está por cobrar.
       parameters:
         - { name: year, in: query, required: true, schema: { type: integer, minimum: 2000, maximum: 2100 } }
         - { name: status, in: query, description: Si se omite incluye ambos, schema: { $ref: '#/components/schemas/DividendStatus' } }
@@ -1425,11 +1428,13 @@ components:
         year: { type: integer }
         reporting:
           type: object
-          required: [currency, monthlyGross, monthlyNet, totalGross, totalNet]
+          required: [currency, monthlyGross, monthlyNet, monthlyAnnouncedGross, monthlyAnnouncedNet, totalGross, totalNet]
           properties:
             currency: { $ref: '#/components/schemas/Currency' }
             monthlyGross: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' } }
             monthlyNet: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' } }
+            monthlyAnnouncedGross: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' }, description: '(v0.6.3) Parte ANNOUNCED de monthlyGross' }
+            monthlyAnnouncedNet: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' }, description: '(v0.6.3) Parte ANNOUNCED de monthlyNet' }
             totalGross: { $ref: '#/components/schemas/Decimal' }
             totalNet: { $ref: '#/components/schemas/Decimal' }
         groups:
@@ -1437,23 +1442,27 @@ components:
           description: Un grupo por moneda
           items:
             type: object
-            required: [currency, rows, monthlyGross, monthlyNet, totalGross, totalNet]
+            required: [currency, rows, monthlyGross, monthlyNet, monthlyAnnouncedGross, monthlyAnnouncedNet, totalGross, totalNet]
             properties:
               currency: { $ref: '#/components/schemas/Currency' }
               rows:
                 type: array
                 items:
                   type: object
-                  required: [instrumentId, symbol, monthlyGross, monthlyNet, totalGross, totalNet]
+                  required: [instrumentId, symbol, monthlyGross, monthlyNet, monthlyAnnouncedGross, monthlyAnnouncedNet, totalGross, totalNet]
                   properties:
                     instrumentId: { type: string, format: uuid }
                     symbol: { type: string }
                     monthlyGross: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' }, description: Índice 0 = enero }
                     monthlyNet: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' } }
+                    monthlyAnnouncedGross: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' }, description: '(v0.6.3) Parte ANNOUNCED de monthlyGross' }
+                    monthlyAnnouncedNet: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' }, description: '(v0.6.3) Parte ANNOUNCED de monthlyNet' }
                     totalGross: { $ref: '#/components/schemas/Decimal' }
                     totalNet: { $ref: '#/components/schemas/Decimal' }
               monthlyGross: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' } }
               monthlyNet: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' } }
+              monthlyAnnouncedGross: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' }, description: '(v0.6.3) Parte ANNOUNCED de monthlyGross' }
+              monthlyAnnouncedNet: { type: array, minItems: 12, maxItems: 12, items: { $ref: '#/components/schemas/Decimal' }, description: '(v0.6.3) Parte ANNOUNCED de monthlyNet' }
               totalGross: { $ref: '#/components/schemas/Decimal' }
               totalNet: { $ref: '#/components/schemas/Decimal' }
 

@@ -193,4 +193,41 @@ describe('resumen de dividendos con bloque en moneda de reporte', () => {
     const usd = await expectStatus(await ana.get('/dividends/summary?year=2025'), 200);
     assert.deepEqual([usd.reporting.currency, usd.reporting.monthlyNet[3], usd.reporting.monthlyNet[4], usd.reporting.totalNet], ['USD', '8.5', '5.2632', '13.7632']);
   });
+
+  test('v0.6.3 — parte ANNOUNCED por mes en filas, grupos y reporting (dos monedas)', async () => {
+    const accounts = (await expectStatus(await ana.get('/accounts'), 200)).items as Array<{ id: string; name: string }>;
+    const id = (name: string) => accounts.find((a) => a.name === name)!.id;
+    // Abril mixto en KO: PAID 10 (neto 8.5, TC 950) + ANNOUNCED 20 (neto 17, TC 950). Junio: PEHUENCHE ANNOUNCED 3000 CLP.
+    await expectStatus(await ana.post('/dividends', { accountId: id('IB'), instrumentId: ko.id, status: 'ANNOUNCED', kind: 'REGULAR', paymentDate: '2025-04-15', grossAmount: '20' }), 201);
+    await expectStatus(await ana.post('/dividends', { accountId: id('Itaú'), instrumentId: peh.id, status: 'ANNOUNCED', kind: 'PROVISIONAL', paymentDate: '2025-06-10', grossAmount: '3000' }), 201);
+    const zeros = Array.from({ length: 12 }, () => '0');
+    const at = (values: Record<number, string>) => zeros.map((z, i) => values[i] ?? z);
+
+    const clp = await expectStatus(await ana.get('/dividends/summary?year=2025&reportingCurrency=CLP'), 200);
+    const [clpGroup, usdGroup] = clp.groups;
+    const ko2 = usdGroup.rows[0];
+    assert.deepEqual([ko2.symbol, ko2.monthlyGross[3], ko2.monthlyNet[3]], ['KO', '30', '25.5']);
+    assert.deepEqual([ko2.monthlyAnnouncedGross, ko2.monthlyAnnouncedNet], [at({ 3: '20' }), at({ 3: '17' })]);
+    assert.deepEqual([usdGroup.monthlyAnnouncedGross, usdGroup.monthlyAnnouncedNet], [at({ 3: '20' }), at({ 3: '17' })]);
+    // Mayo sólo PAID (PEHUENCHE 5000): anunciado 0; junio anunciado 3000.
+    assert.deepEqual([clpGroup.monthlyNet[4], clpGroup.monthlyAnnouncedNet[4], clpGroup.monthlyAnnouncedNet[5]], ['5000', '0', '3000']);
+    assert.deepEqual(clpGroup.rows[0].monthlyAnnouncedGross, clpGroup.monthlyAnnouncedGross);
+
+    // Reporte CLP: abril 9500 + 19000 bruto, 8075 + 16150 neto; anunciado 19000 / 16150; junio 3000.
+    assert.deepEqual([clp.reporting.monthlyGross[3], clp.reporting.monthlyNet[3]], ['28500', '24225']);
+    assert.deepEqual(clp.reporting.monthlyAnnouncedGross, at({ 3: '19000', 5: '3000' }));
+    assert.deepEqual(clp.reporting.monthlyAnnouncedNet, at({ 3: '16150', 5: '3000' }));
+    assert.deepEqual([clp.reporting.totalGross, clp.reporting.totalNet], ['36500', '32225']);
+
+    // Reporte USD: junio 3000 CLP / 950 = 3.1579.
+    const usd = await expectStatus(await ana.get('/dividends/summary?year=2025'), 200);
+    assert.deepEqual(usd.reporting.monthlyAnnouncedNet, at({ 3: '17', 5: '3.1579' }));
+
+    const blocks = (summary: Record<string, any>) => [summary.reporting, ...summary.groups, ...summary.groups.flatMap((g: Record<string, any>) => g.rows)];
+    const paid = await expectStatus(await ana.get('/dividends/summary?year=2025&status=PAID&reportingCurrency=CLP'), 200);
+    for (const b of blocks(paid)) assert.deepEqual([b.monthlyAnnouncedGross, b.monthlyAnnouncedNet], [zeros, zeros]);
+    const announced = await expectStatus(await ana.get('/dividends/summary?year=2025&status=ANNOUNCED&reportingCurrency=CLP'), 200);
+    for (const b of blocks(announced)) assert.deepEqual([b.monthlyAnnouncedGross, b.monthlyAnnouncedNet], [b.monthlyGross, b.monthlyNet]);
+    assert.deepEqual(announced.reporting.monthlyAnnouncedNet, at({ 3: '16150', 5: '3000' }));
+  });
 });

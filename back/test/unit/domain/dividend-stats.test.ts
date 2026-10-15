@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Decimal } from '../../../src/domain/decimal.ts';
-import { dividendsByMonth, monthRange } from '../../../src/domain/dividend-stats.ts';
+import { dividendsByMonth, monthlySummary, monthRange } from '../../../src/domain/dividend-stats.ts';
 
 const d = Decimal.parse;
 type In = Parameters<typeof dividendsByMonth>[0]['dividends'][number];
@@ -116,5 +116,82 @@ describe('dividendsYearOverYear (hoy 2026-10-04)', () => {
     const first = dividendsYearOverYear({ dividends, years: [2024], today: '2026-10-04' }).years[0]!;
     assert.equal(first.growth, null);
     assert.equal(first.months[2]!.growthVsPreviousYear, null);
+  });
+});
+
+describe('monthlySummary: dividendos de un año por moneda, instrumento y mes, con la parte ANNOUNCED aparte', () => {
+  type Div = Parameters<typeof monthlySummary>[0][number];
+  const div = (instrumentId: string, currency: Div['currency'], status: Div['status'], paymentDate: string, gross: string, net: string): Div => ({
+    instrumentId, currency, status, paymentDate, grossAmount: d(gross), netAmount: d(net),
+  });
+  // USD → CLP a 900 hasta hoy; los ANNOUNCED futuros el caso de uso ya los pasa con el último TC.
+  const toClp = (amount: Decimal, currency: string) => (currency === 'USD' ? amount.mul(d('900.5')) : amount);
+  const list = (xs: Decimal[]) => xs.map(String);
+  const zeros = Array.from({ length: 12 }, () => '0');
+  const at = (month: number, value: string) => zeros.map((z, i) => (i === month ? value : z));
+
+  const dividends = [
+    div('KO', 'USD', 'PAID', '2025-01-15', '10', '8.5'),
+    div('KO', 'USD', 'ANNOUNCED', '2025-01-30', '20', '17'),
+    div('KO', 'USD', 'PAID', '2025-03-01', '5', '4.25'),
+    div('PEP', 'USD', 'ANNOUNCED', '2025-01-10', '3.33', '2.83'),
+    div('PEH', 'CLP', 'ANNOUNCED', '2025-05-20', '1000', '1000'),
+  ];
+
+  test('mes mixto: monthlyNet suma ambos y monthlyAnnouncedNet sólo el anunciado; mes sólo PAID → anunciado 0', () => {
+    const ko = monthlySummary(dividends, toClp).groups.find((g) => g.currency === 'USD')!.rows.find((r) => r.instrumentId === 'KO')!;
+    assert.deepEqual([ko.monthlyGross[0]!.toString(), ko.monthlyNet[0]!.toString()], ['30', '25.5']);
+    assert.deepEqual([ko.monthlyAnnouncedGross[0]!.toString(), ko.monthlyAnnouncedNet[0]!.toString()], ['20', '17']);
+    assert.deepEqual([ko.monthlyNet[2]!.toString(), ko.monthlyAnnouncedNet[2]!.toString(), ko.monthlyAnnouncedGross[2]!.toString()], ['4.25', '0', '0']);
+    assert.deepEqual([ko.totalGross.toString(), ko.totalNet.toString()], ['35', '29.75']);
+  });
+
+  test('grupos por moneda ordenados; el grupo suma sus filas columna por columna', () => {
+    const { groups } = monthlySummary(dividends, toClp);
+    assert.deepEqual(groups.map((g) => g.currency), ['CLP', 'USD']);
+    const usd = groups[1]!;
+    assert.deepEqual(list(usd.monthlyNet), list(usd.rows[0]!.monthlyNet.map((x, i) => x.add(usd.rows[1]!.monthlyNet[i]!))));
+    assert.deepEqual(list(usd.monthlyAnnouncedNet), at(0, '19.83'));
+    assert.deepEqual(list(usd.monthlyAnnouncedGross), at(0, '23.33'));
+    assert.deepEqual([usd.totalGross.toString(), usd.totalNet.toString()], ['38.33', '32.58']);
+    assert.deepEqual(list(groups[0]!.monthlyAnnouncedGross), at(4, '1000'));
+  });
+
+  test('reporting: convierte cada dividendo, redondea por mes y totaliza con los meses redondeados', () => {
+    const { reporting } = monthlySummary(dividends, toClp);
+    // enero neto: (8.5 + 17 + 2.83) × 900.5 = 25511.165 → 25511.165; anunciado (17 + 2.83) × 900.5 = 17856.915
+    assert.equal(reporting.monthlyNet[0]!.toString(), '25511.165');
+    assert.equal(reporting.monthlyAnnouncedNet[0]!.toString(), '17856.915');
+    // enero bruto anunciado (20 + 3.33) × 900.5 = 21008.665; mayo 1000 CLP anunciado
+    assert.deepEqual([reporting.monthlyAnnouncedGross[0]!.toString(), reporting.monthlyAnnouncedGross[4]!.toString()], ['21008.665', '1000']);
+    assert.deepEqual([reporting.monthlyNet[2]!.toString(), reporting.monthlyAnnouncedNet[2]!.toString()], ['3827.125', '0']);
+    assert.equal(reporting.totalNet.toString(), Decimal.sum(reporting.monthlyNet).toString());
+    assert.equal(reporting.totalGross.toString(), Decimal.sum(reporting.monthlyGross).toString());
+  });
+
+  test('redondeo por mes en reporte, también para la parte anunciada', () => {
+    const r = monthlySummary([div('KO', 'USD', 'ANNOUNCED', '2025-02-01', '0.00011', '0.00011')], toClp).reporting;
+    // 0.00011 × 900.5 = 0.099055 → 0.0991 (4 decimales)
+    assert.deepEqual([r.monthlyNet[1]!.toString(), r.monthlyAnnouncedNet[1]!.toString()], ['0.0991', '0.0991']);
+  });
+
+  test('sólo PAID: anunciado todo 0; sólo ANNOUNCED: anunciado igual al mes', () => {
+    const only = (status: Div['status']) => monthlySummary(dividends.filter((x) => x.status === status), toClp);
+    const paid = only('PAID');
+    for (const block of [paid.reporting, ...paid.groups, ...paid.groups.flatMap((g) => g.rows)]) {
+      assert.deepEqual(list(block.monthlyAnnouncedGross), zeros);
+      assert.deepEqual(list(block.monthlyAnnouncedNet), zeros);
+    }
+    const announced = only('ANNOUNCED');
+    for (const block of [announced.reporting, ...announced.groups, ...announced.groups.flatMap((g) => g.rows)]) {
+      assert.deepEqual(list(block.monthlyAnnouncedGross), list(block.monthlyGross));
+      assert.deepEqual(list(block.monthlyAnnouncedNet), list(block.monthlyNet));
+    }
+  });
+
+  test('sin dividendos: sin grupos y reporting en cero', () => {
+    const r = monthlySummary([], toClp);
+    assert.deepEqual(r.groups, []);
+    assert.deepEqual([list(r.reporting.monthlyNet), list(r.reporting.monthlyAnnouncedNet), r.reporting.totalNet.toString()], [zeros, zeros, '0']);
   });
 });

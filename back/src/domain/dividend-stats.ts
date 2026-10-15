@@ -1,5 +1,7 @@
 import { roundAmount, RATE_SCALE } from './amounts.ts';
 import { Decimal } from './decimal.ts';
+import type { Currency } from './currency.ts';
+import { monthOf } from './dates.ts';
 import type { DividendStatus } from './dividend.ts';
 
 /** Dividendo ya convertido a la moneda de reporte (sin redondear). */
@@ -129,4 +131,90 @@ export function dividendsYearOverYear(input: { dividends: readonly ReportedDivid
     };
   });
   return { availableYears, years };
+}
+
+/** Montos de 12 meses (índice 0 = enero) con su parte ANNOUNCED (ya incluida) y los totales del año. */
+export type MonthlyBlock = {
+  monthlyGross: Decimal[];
+  monthlyNet: Decimal[];
+  monthlyAnnouncedGross: Decimal[];
+  monthlyAnnouncedNet: Decimal[];
+  totalGross: Decimal;
+  totalNet: Decimal;
+};
+
+type SummaryDividend = { instrumentId: string; currency: Currency; status: DividendStatus; paymentDate: string; grossAmount: Decimal; netAmount: Decimal };
+
+const twelveZeros = () => Array.from({ length: 12 }, () => Decimal.ZERO);
+
+class MonthlyAccumulator {
+  readonly gross = twelveZeros();
+  readonly net = twelveZeros();
+  readonly announcedGross = twelveZeros();
+  readonly announcedNet = twelveZeros();
+
+  add(month: number, announced: boolean, gross: Decimal, net: Decimal): void {
+    this.gross[month] = this.gross[month]!.add(gross);
+    this.net[month] = this.net[month]!.add(net);
+    if (!announced) return;
+    this.announcedGross[month] = this.announcedGross[month]!.add(gross);
+    this.announcedNet[month] = this.announcedNet[month]!.add(net);
+  }
+
+  block(round: (x: Decimal) => Decimal = (x) => x): MonthlyBlock {
+    const [monthlyGross, monthlyNet] = [this.gross.map(round), this.net.map(round)];
+    return {
+      monthlyGross,
+      monthlyNet,
+      monthlyAnnouncedGross: this.announcedGross.map(round),
+      monthlyAnnouncedNet: this.announcedNet.map(round),
+      totalGross: Decimal.sum(monthlyGross),
+      totalNet: Decimal.sum(monthlyNet),
+    };
+  }
+}
+
+const sumBlocks = (blocks: MonthlyBlock[]): MonthlyBlock => {
+  const columns = (pick: (b: MonthlyBlock) => Decimal[]) => twelveZeros().map((_, i) => Decimal.sum(blocks.map((b) => pick(b)[i]!)));
+  const [monthlyGross, monthlyNet] = [columns((b) => b.monthlyGross), columns((b) => b.monthlyNet)];
+  return {
+    monthlyGross,
+    monthlyNet,
+    monthlyAnnouncedGross: columns((b) => b.monthlyAnnouncedGross),
+    monthlyAnnouncedNet: columns((b) => b.monthlyAnnouncedNet),
+    totalGross: Decimal.sum(monthlyGross),
+    totalNet: Decimal.sum(monthlyNet),
+  };
+};
+
+/**
+ * Tabla mensual de un año: por moneda original (grupo = suma de sus filas por instrumento) y en moneda de
+ * reporte (cada dividendo convertido con `toReporting`, redondeado por mes). La parte ANNOUNCED va aparte en
+ * `monthlyAnnounced*` y ya está incluida en `monthlyGross` / `monthlyNet`.
+ */
+export function monthlySummary(
+  dividends: readonly SummaryDividend[],
+  toReporting: (amount: Decimal, currency: Currency, date: string) => Decimal,
+): { groups: Array<MonthlyBlock & { currency: Currency; rows: Array<MonthlyBlock & { instrumentId: string }> }>; reporting: MonthlyBlock } {
+  const byCurrency = new Map<Currency, Map<string, MonthlyAccumulator>>();
+  const reporting = new MonthlyAccumulator();
+  for (const d of dividends) {
+    const rows = byCurrency.get(d.currency) ?? new Map<string, MonthlyAccumulator>();
+    byCurrency.set(d.currency, rows);
+    const row = rows.get(d.instrumentId) ?? new MonthlyAccumulator();
+    rows.set(d.instrumentId, row);
+    const month = monthOf(d.paymentDate) - 1;
+    const announced = d.status === 'ANNOUNCED';
+    row.add(month, announced, d.grossAmount, d.netAmount);
+    reporting.add(month, announced, toReporting(d.grossAmount, d.currency, d.paymentDate), toReporting(d.netAmount, d.currency, d.paymentDate));
+  }
+  return {
+    reporting: reporting.block(roundAmount),
+    groups: [...byCurrency.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([currency, rows]) => {
+        const list = [...rows.entries()].map(([instrumentId, acc]) => ({ instrumentId, ...acc.block() }));
+        return { currency, rows: list, ...sumBlocks(list) };
+      }),
+  };
 }

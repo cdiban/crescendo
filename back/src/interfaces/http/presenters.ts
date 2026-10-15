@@ -3,6 +3,7 @@ import type { Decimal } from '../../domain/decimal.ts';
 import type { Market } from '../../domain/market.ts';
 import type { PreferencesView } from '../../application/use-cases/preferences.ts';
 import type { HistoryPoint } from '../../domain/portfolio-history.ts';
+import type { MonthlyBlock } from '../../domain/dividend-stats.ts';
 import type { AccountView } from '../../application/use-cases/accounts.ts';
 import type { CashTransferView } from '../../application/use-cases/cash.ts';
 import type { InstrumentView } from '../../application/use-cases/catalog.ts';
@@ -237,29 +238,22 @@ export const presentPortfolioSummary = (p: PortfolioSummary) => ({
   exposure: p.exposure.map((e) => ({ currency: e.currency, amount: s(e.amount), weight: s(e.weight) })),
 });
 
+const presentMonthly = (b: MonthlyBlock) => ({
+  monthlyGross: b.monthlyGross.map(s),
+  monthlyNet: b.monthlyNet.map(s),
+  monthlyAnnouncedGross: b.monthlyAnnouncedGross.map(s),
+  monthlyAnnouncedNet: b.monthlyAnnouncedNet.map(s),
+  totalGross: s(b.totalGross),
+  totalNet: s(b.totalNet),
+});
+
 export const presentSummary = (summary: DividendSummary) => ({
   year: summary.year,
-  reporting: {
-    currency: summary.reporting.currency,
-    monthlyGross: summary.reporting.monthlyGross.map(s),
-    monthlyNet: summary.reporting.monthlyNet.map(s),
-    totalGross: s(summary.reporting.totalGross),
-    totalNet: s(summary.reporting.totalNet),
-  },
+  reporting: { currency: summary.reporting.currency, ...presentMonthly(summary.reporting) },
   groups: summary.groups.map((g) => ({
     currency: g.currency,
-    rows: g.rows.map((r) => ({
-      instrumentId: r.instrumentId,
-      symbol: r.symbol,
-      monthlyGross: r.monthlyGross.map(s),
-      monthlyNet: r.monthlyNet.map(s),
-      totalGross: s(r.totalGross),
-      totalNet: s(r.totalNet),
-    })),
-    monthlyGross: g.monthlyGross.map(s),
-    monthlyNet: g.monthlyNet.map(s),
-    totalGross: s(g.totalGross),
-    totalNet: s(g.totalNet),
+    rows: g.rows.map((r) => ({ instrumentId: r.instrumentId, symbol: r.symbol, ...presentMonthly(r) })),
+    ...presentMonthly(g),
   })),
 });
 

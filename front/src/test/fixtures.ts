@@ -91,19 +91,54 @@ export const dividend = (over: Partial<Dividend> = {}): Dividend => ({
 
 const months = (values: Record<number, string>) => Array.from({ length: 12 }, (_, i) => values[i] ?? '0');
 
+const none = months({});
 export const summary2026: DividendSummary = {
   year: 2026,
-  reporting: { currency: 'USD', monthlyGross: months({ 3: '5.1', 4: '98.71', 6: '5.1' }), monthlyNet: months({ 3: '4.34', 4: '98.71', 6: '4.34' }), totalGross: '108.91', totalNet: '107.39' },
+  reporting: {
+    currency: 'USD', monthlyGross: months({ 3: '5.1', 4: '98.71', 6: '5.1' }), monthlyNet: months({ 3: '4.34', 4: '98.71', 6: '4.34' }), totalGross: '108.91', totalNet: '107.39',
+    monthlyAnnouncedGross: none, monthlyAnnouncedNet: none,
+  },
   groups: [
     {
       currency: 'CLP',
-      rows: [{ instrumentId: PEHUENCHE, symbol: 'PEHUENCHE', monthlyGross: months({ 4: '93178' }), monthlyNet: months({ 4: '93178' }), totalGross: '93178', totalNet: '93178' }],
-      monthlyGross: months({ 4: '93178' }), monthlyNet: months({ 4: '93178' }), totalGross: '93178', totalNet: '93178',
+      rows: [{ instrumentId: PEHUENCHE, symbol: 'PEHUENCHE', monthlyGross: months({ 4: '93178' }), monthlyNet: months({ 4: '93178' }), totalGross: '93178', totalNet: '93178', monthlyAnnouncedGross: none, monthlyAnnouncedNet: none }],
+      monthlyGross: months({ 4: '93178' }), monthlyNet: months({ 4: '93178' }), totalGross: '93178', totalNet: '93178', monthlyAnnouncedGross: none, monthlyAnnouncedNet: none,
     },
     {
       currency: 'USD',
-      rows: [{ instrumentId: KO, symbol: 'KO', monthlyGross: months({ 3: '5.1', 6: '5.1' }), monthlyNet: months({ 3: '4.34', 6: '4.34' }), totalGross: '10.2', totalNet: '8.68' }],
-      monthlyGross: months({ 3: '5.1', 6: '5.1' }), monthlyNet: months({ 3: '4.34', 6: '4.34' }), totalGross: '10.2', totalNet: '8.68',
+      rows: [{ instrumentId: KO, symbol: 'KO', monthlyGross: months({ 3: '5.1', 6: '5.1' }), monthlyNet: months({ 3: '4.34', 6: '4.34' }), totalGross: '10.2', totalNet: '8.68', monthlyAnnouncedGross: none, monthlyAnnouncedNet: none }],
+      monthlyGross: months({ 3: '5.1', 6: '5.1' }), monthlyNet: months({ 3: '4.34', 6: '4.34' }), totalGross: '10.2', totalNet: '8.68', monthlyAnnouncedGross: none, monthlyAnnouncedNet: none,
+    },
+  ],
+};
+
+/**
+ * Resumen con anunciados (v0.6.3), en índices de mes 0–11: mar (2) cobrado, sept (8) mixto, oct (9) y nov (10) por cobrar.
+ * El bruto difiere del neto para comprobar que cada vista usa su propio arreglo de anunciados.
+ */
+export const summaryAnnounced: DividendSummary = {
+  year: 2026,
+  reporting: {
+    currency: 'USD',
+    monthlyNet: months({ 2: '4.34', 8: '267.69', 9: '15.02', 10: '23.85' }), monthlyAnnouncedNet: months({ 8: '120.5', 9: '15.02', 10: '23.85' }),
+    monthlyGross: months({ 2: '5.1', 8: '300', 9: '17.67', 10: '28.06' }), monthlyAnnouncedGross: months({ 8: '141.76', 9: '17.67', 10: '28.06' }),
+    totalNet: '310.9', totalGross: '350.83',
+  },
+  groups: [
+    {
+      currency: 'CLP',
+      rows: [{ instrumentId: PEHUENCHE, symbol: 'PEHUENCHE', monthlyNet: months({ 9: '105524' }), monthlyAnnouncedNet: months({ 9: '105524' }), monthlyGross: months({ 9: '105524' }), monthlyAnnouncedGross: months({ 9: '105524' }), totalNet: '105524', totalGross: '105524' }],
+      monthlyNet: months({ 9: '105524' }), monthlyAnnouncedNet: months({ 9: '105524' }), monthlyGross: months({ 9: '105524' }), monthlyAnnouncedGross: months({ 9: '105524' }), totalNet: '105524', totalGross: '105524',
+    },
+    {
+      currency: 'USD',
+      rows: [
+        { instrumentId: KO, symbol: 'KO', monthlyNet: months({ 2: '4.34', 8: '147.19' }), monthlyAnnouncedNet: none, monthlyGross: months({ 2: '5.1', 8: '158.24' }), monthlyAnnouncedGross: none, totalNet: '151.53', totalGross: '163.34' },
+        { instrumentId: BITO, symbol: 'BITO', monthlyNet: months({ 8: '120.5', 10: '23.85' }), monthlyAnnouncedNet: months({ 8: '120.5', 10: '23.85' }), monthlyGross: months({ 8: '141.76', 10: '28.06' }), monthlyAnnouncedGross: months({ 8: '141.76', 10: '28.06' }), totalNet: '144.35', totalGross: '169.82' },
+      ],
+      monthlyNet: months({ 2: '4.34', 8: '267.69', 10: '23.85' }), monthlyAnnouncedNet: months({ 8: '120.5', 10: '23.85' }),
+      monthlyGross: months({ 2: '5.1', 8: '300', 10: '28.06' }), monthlyAnnouncedGross: months({ 8: '141.76', 10: '28.06' }),
+      totalNet: '295.88', totalGross: '333.16',
     },
   ],
 };

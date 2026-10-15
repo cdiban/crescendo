@@ -9,7 +9,7 @@ import { computeHoldings, type Holding } from '../../domain/positions.ts';
 import { cashFxEffect, exposureWeights, WEIGHT_SCALE, type Exposure } from '../../domain/reporting.ts';
 import { isIntradayPrice, type PriceSource } from '../../domain/market-data.ts';
 import { effectiveWithholdingRate } from '../../domain/instrument.ts';
-import { dividendsByMonth, dividendsYearOverYear, type MonthPoint, type YearTotal, type YoyYear } from '../../domain/dividend-stats.ts';
+import { dividendsByMonth, dividendsYearOverYear, monthlySummary, type MonthlyBlock, type MonthPoint, type YearTotal, type YoyYear } from '../../domain/dividend-stats.ts';
 import { dividendHealth, perSharePayments, sortHealthRows, type DividendHealth } from '../../domain/dividend-per-share.ts';
 import { buildCalendar, estimateNextDividend, type CalendarItem, type CalendarMonth } from '../../domain/dividend-calendar.ts';
 import { allocate, allocationValue, weightsByKey, type AllocationItem, type AllocationRow } from '../../domain/allocation.ts';
@@ -109,9 +109,9 @@ export type PositionsResult = {
   total: ReportingAmounts;
 };
 
-export type SummaryRow = { instrumentId: string; symbol: string; monthlyGross: Decimal[]; monthlyNet: Decimal[]; totalGross: Decimal; totalNet: Decimal };
-export type SummaryGroup = { currency: Currency; rows: SummaryRow[]; monthlyGross: Decimal[]; monthlyNet: Decimal[]; totalGross: Decimal; totalNet: Decimal };
-export type ReportingMonthly = { currency: Currency; monthlyGross: Decimal[]; monthlyNet: Decimal[]; totalGross: Decimal; totalNet: Decimal };
+export type SummaryRow = MonthlyBlock & { instrumentId: string; symbol: string };
+export type SummaryGroup = MonthlyBlock & { currency: Currency; rows: SummaryRow[] };
+export type ReportingMonthly = MonthlyBlock & { currency: Currency };
 export type DividendSummary = { year: number; groups: SummaryGroup[]; reporting: ReportingMonthly };
 
 export type PortfolioSummary = {
@@ -195,7 +195,6 @@ function coverage(priced: Decimal, total: Decimal): Decimal {
   return total.isZero() ? Decimal.ONE : priced.div(total, WEIGHT_SCALE);
 }
 
-const twelveZeros = () => Array.from({ length: 12 }, () => Decimal.ZERO);
 const QUANTITY_SCALE = 10;
 
 type Row = Omit<Holding, 'accountId' | 'reporting'> & { accountId: string | null; reporting: { costBasis: Decimal; realizedGain: Decimal } };
@@ -825,45 +824,16 @@ export class Portfolio {
       // Los ANNOUNCED con fecha futura usan el último TC disponible (hoy).
       const rep = await this.#reporter(r, userId, query.reportingCurrency, this.#clock.today());
       const instruments = new Map((await r.instruments.findByIds(dividends.map((d) => d.instrumentId))).map((i) => [i.id, i]));
-
-      const groups = new Map<Currency, Map<string, { gross: Decimal[]; net: Decimal[] }>>();
-      const repGross = twelveZeros();
-      const repNet = twelveZeros();
-      for (const d of dividends) {
-        const rows = groups.get(d.currency) ?? new Map<string, { gross: Decimal[]; net: Decimal[] }>();
-        groups.set(d.currency, rows);
-        const row = rows.get(d.instrumentId) ?? { gross: twelveZeros(), net: twelveZeros() };
-        rows.set(d.instrumentId, row);
-        const m = monthOf(d.paymentDate) - 1;
-        row.gross[m] = row.gross[m]!.add(d.grossAmount);
-        row.net[m] = row.net[m]!.add(d.netAmount);
-        repGross[m] = repGross[m]!.add(rep.atDate(d.grossAmount, d.currency, d.paymentDate));
-        repNet[m] = repNet[m]!.add(rep.atDate(d.netAmount, d.currency, d.paymentDate));
-      }
-
-      const sumColumns = (rows: Decimal[][]) => twelveZeros().map((_, i) => Decimal.sum(rows.map((r) => r[i]!)));
-      const monthlyGross = repGross.map(roundAmount);
-      const monthlyNet = repNet.map(roundAmount);
+      const { groups, reporting } = monthlySummary(dividends, (amount, currency, date) => rep.atDate(amount, currency, date));
       return {
         year: query.year,
-        reporting: { currency: rep.currency, monthlyGross, monthlyNet, totalGross: Decimal.sum(monthlyGross), totalNet: Decimal.sum(monthlyNet) },
-        groups: [...groups.entries()]
-          .sort(([a], [b]) => (a < b ? -1 : 1))
-          .map(([currency, rows]) => {
-            const summaryRows: SummaryRow[] = [...rows.entries()]
-              .map(([instrumentId, row]) => ({
-                instrumentId,
-                symbol: instruments.get(instrumentId)!.symbol,
-                monthlyGross: row.gross,
-                monthlyNet: row.net,
-                totalGross: Decimal.sum(row.gross),
-                totalNet: Decimal.sum(row.net),
-              }))
-              .sort((a, b) => (a.symbol < b.symbol ? -1 : 1));
-            const g = sumColumns(summaryRows.map((s) => s.monthlyGross));
-            const n = sumColumns(summaryRows.map((s) => s.monthlyNet));
-            return { currency, rows: summaryRows, monthlyGross: g, monthlyNet: n, totalGross: Decimal.sum(g), totalNet: Decimal.sum(n) };
-          }),
+        reporting: { currency: rep.currency, ...reporting },
+        groups: groups.map((g) => ({
+          ...g,
+          rows: g.rows
+            .map((row) => ({ ...row, symbol: instruments.get(row.instrumentId)!.symbol }))
+            .sort((a, b) => (a.symbol < b.symbol ? -1 : 1)),
+        })),
       };
     });
   }

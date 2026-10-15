@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,6 +15,11 @@ type DataTableProps = {
    */
   scroll: 'contained' | 'page';
   children: ReactNode;
+  /** Clases y estilo de la <table> (p. ej. table-fixed con un ancho común a varias tablas). */
+  tableClassName?: string;
+  tableStyle?: CSSProperties;
+  /** Recibe el elemento con scroll (p. ej. para sincronizar el desplazamiento horizontal entre tablas). */
+  regionRef?: (el: HTMLDivElement | null) => void;
   /** Paginación u otros controles: quedan fuera del scroll, siempre visibles. */
   footer?: ReactNode;
   /** Ocupa el alto disponible del contenedor flex (grillas principales de cada pantalla). */
@@ -30,8 +35,15 @@ type DataTableProps = {
  * para que la página no crezca con la cantidad de filas.
  * Los hijos son TableHeader/TableBody/TableFooter de "@/components/ui/table".
  */
-export function DataTable({ label, scroll, children, footer, fill, isEmpty, empty, loading, className }: DataTableProps) {
+export function DataTable({ label, scroll, children, footer, fill, isEmpty, empty, loading, className, tableClassName, tableStyle, regionRef }: DataTableProps) {
   const region = useRef<HTMLDivElement>(null);
+  const setRegion = useCallback(
+    (el: HTMLDivElement | null) => {
+      region.current = el;
+      regionRef?.(el);
+    },
+    [regionRef],
+  );
   useStickyHead(region, scroll === 'page');
   return (
     <div
@@ -42,7 +54,7 @@ export function DataTable({ label, scroll, children, footer, fill, isEmpty, empt
       )}
     >
       <div
-        ref={region}
+        ref={setRegion}
         role="region"
         aria-label={label}
         data-scroll={scroll}
@@ -78,7 +90,7 @@ export function DataTable({ label, scroll, children, footer, fill, isEmpty, empt
         ) : isEmpty ? (
           <p className="p-6 text-center text-sm text-muted-foreground">{empty}</p>
         ) : (
-          <table data-slot="table" className="w-full border-separate border-spacing-0 text-sm [&_td]:border-b [&_th]:border-b">
+          <table data-slot="table" className={cn('w-full border-separate border-spacing-0 text-sm [&_td]:border-b [&_th]:border-b', tableClassName)} style={tableStyle}>
             {children}
           </table>
         )}

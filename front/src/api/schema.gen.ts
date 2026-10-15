@@ -233,6 +233,9 @@ export interface paths {
          * Dividendos de un año por instrumento y mes (equivalente a la tabla mensual del Excel)
          * @description `groups`: por moneda original. `reporting` (v0.3): todos los dividendos convertidos a la moneda de reporte al tipo de cambio
          *     de su fecha de pago (los ANNOUNCED con fecha futura usan el último disponible).
+         *     (v0.6.3) Cada nivel (fila, grupo y `reporting`) trae además `monthlyAnnouncedGross` / `monthlyAnnouncedNet`: la parte ANNOUNCED
+         *     (por cobrar) de cada mes, ya incluida en `monthlyGross` / `monthlyNet`. Con `status=PAID` son todo "0"; con `status=ANNOUNCED`
+         *     son iguales a los montos del mes. Sirven para marcar en la UI qué está cobrado y qué está por cobrar.
          */
         get: operations["getDividendSummary"];
         put?: never;
@@ -966,6 +969,10 @@ export interface components {
                 currency: components["schemas"]["Currency"];
                 monthlyGross: components["schemas"]["Decimal"][];
                 monthlyNet: components["schemas"]["Decimal"][];
+                /** @description (v0.6.3) Parte ANNOUNCED de monthlyGross */
+                monthlyAnnouncedGross: components["schemas"]["Decimal"][];
+                /** @description (v0.6.3) Parte ANNOUNCED de monthlyNet */
+                monthlyAnnouncedNet: components["schemas"]["Decimal"][];
                 totalGross: components["schemas"]["Decimal"];
                 totalNet: components["schemas"]["Decimal"];
             };
@@ -979,11 +986,19 @@ export interface components {
                     /** @description Índice 0 = enero */
                     monthlyGross: components["schemas"]["Decimal"][];
                     monthlyNet: components["schemas"]["Decimal"][];
+                    /** @description (v0.6.3) Parte ANNOUNCED de monthlyGross */
+                    monthlyAnnouncedGross: components["schemas"]["Decimal"][];
+                    /** @description (v0.6.3) Parte ANNOUNCED de monthlyNet */
+                    monthlyAnnouncedNet: components["schemas"]["Decimal"][];
                     totalGross: components["schemas"]["Decimal"];
                     totalNet: components["schemas"]["Decimal"];
                 }[];
                 monthlyGross: components["schemas"]["Decimal"][];
                 monthlyNet: components["schemas"]["Decimal"][];
+                /** @description (v0.6.3) Parte ANNOUNCED de monthlyGross */
+                monthlyAnnouncedGross: components["schemas"]["Decimal"][];
+                /** @description (v0.6.3) Parte ANNOUNCED de monthlyNet */
+                monthlyAnnouncedNet: components["schemas"]["Decimal"][];
                 totalGross: components["schemas"]["Decimal"];
                 totalNet: components["schemas"]["Decimal"];
             }[];
