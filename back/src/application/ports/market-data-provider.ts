@@ -13,7 +13,7 @@ export type MarketQuote = {
 export type MarketChart = {
   priceSymbol: string;
   currency: string;
-  /** Cierres diarios con dato (los días sin cierre se omiten, no se inventan). */
+  /** Cierres diarios con dato (los días sin cierre se omiten, no se inventan). (v0.7) Precio real de cada fecha, sin ajuste por splits. */
   closes: Array<{ date: string; close: Decimal }>;
   quote: MarketQuote | null;
 };

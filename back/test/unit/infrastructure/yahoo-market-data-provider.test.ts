@@ -92,6 +92,47 @@ describe('YahooMarketDataProvider', () => {
     assert.equal(chart.quote?.price.toString(), '2701');
   });
 
+  test('pide events=split y deshace el ajuste por split en los cierres anteriores (NVDA 10:1 del 2024-06-10, respuesta real)', async () => {
+    const { p, calls } = provider(async () => new Response(await fixture('NVDA-split.json')));
+    const chart = await p.fetchChart('NVDA', '2024-06-03');
+    assert.equal(new URL(calls[0]!.url).searchParams.get('events'), 'split');
+    const close = (date: string) => chart.closes.find((c) => c.date === date)?.close.toString();
+    // Yahoo entrega 115 y 120.888 (ajustados ÷ 10): se guarda el precio real de la fecha.
+    assert.deepEqual([close('2024-06-03'), close('2024-06-04'), close('2024-06-07')], ['1150', '1164.37', '1208.88']);
+    // Desde el día del split, sin cambios.
+    assert.deepEqual([close('2024-06-10'), close('2024-06-14')], ['121.79', '131.88']);
+  });
+
+  test('reverse split informado: cierres previos × numerator/denominator y previousClose real; sin evento no se toca nada', async () => {
+    // Forma de BITO tras ajustar Yahoo: 16.62 (= 8.31 × 2) el 18 y 16.72 el 19, reverse split 1 por 2 el 19.
+    const day = (date: string) => Date.parse(`${date}T14:30:00Z`) / 1000;
+    const body = (events: unknown) =>
+      JSON.stringify({
+        chart: {
+          result: [{
+            meta: { currency: 'USD', exchangeTimezoneName: 'America/New_York', regularMarketPrice: 16.72, regularMarketTime: day('2026-11-19') + 23_400 },
+            timestamp: [day('2026-11-17'), day('2026-11-18'), day('2026-11-19')],
+            indicators: { quote: [{ close: [16.5, 16.62, 16.72] }] },
+            ...(events ? { events } : {}),
+          }],
+        },
+      });
+    const adjusted = provider(async () => new Response(body({ splits: { [day('2026-11-19')]: { date: day('2026-11-19'), numerator: 1.0, denominator: 2.0, splitRatio: '1:2' } } })));
+    const real = await adjusted.p.fetchChart('BITO', '2026-11-17');
+    assert.deepEqual(real.closes.map((c) => [c.date, c.close.toString()]), [['2026-11-17', '8.25'], ['2026-11-18', '8.31'], ['2026-11-19', '16.72']]);
+    assert.deepEqual([real.quote?.price.toString(), real.quote?.previousClose?.toString()], ['16.72', '8.31']);
+
+    const plain = provider(async () => new Response(body(null)));
+    const raw = await plain.p.fetchChart('BITO', '2026-11-17');
+    assert.deepEqual(raw.closes.map((c) => c.close.toString()), ['16.5', '16.62', '16.72']);
+  });
+
+  test('split informado con datos inválidos → error claro (no se guardan cierres ajustados)', async () => {
+    const bad = JSON.stringify({ chart: { result: [{ meta: { currency: 'USD', exchangeTimezoneName: 'America/New_York' }, timestamp: [1], indicators: { quote: [{ close: [1] }] }, events: { splits: { 1: { date: 1, numerator: 0, denominator: 1 } } } }] } });
+    const { p } = provider(async () => new Response(bad));
+    await assert.rejects(p.fetchChart('KO', '2026-07-01'), /yahoo KO: split inválido/);
+  });
+
   test('símbolo inexistente (404) → UnknownPriceSymbolError, sin reintentos', async () => {
     const { p, calls } = provider(async () => new Response(await fixture('not-found.json'), { status: 404 }));
     await assert.rejects(p.fetchChart('NOEXISTE.SN', '2026-07-01'), UnknownPriceSymbolError);

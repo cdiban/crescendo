@@ -45,8 +45,8 @@ async function views(r: Repositories, trades: Trade[]): Promise<TradeView[]> {
 }
 
 /**
- * La posición (cuenta + instrumento) no puede quedar negativa al cierre de ninguna fecha
- * tras aplicar el cambio: `without` sale del historial y `withTrade` entra.
+ * La posición (cuenta + instrumento) no puede quedar negativa al cierre de ninguna fecha (con los
+ * splits del instrumento) tras aplicar el cambio: `without` sale del historial y `withTrade` entra.
  */
 async function assertPositionNeverNegative(
   r: Repositories,
@@ -56,7 +56,8 @@ async function assertPositionNeverNegative(
   change: { without?: string; withTrade?: Pick<Trade, 'side' | 'tradeDate' | 'quantity'> },
 ): Promise<void> {
   const history = (await r.trades.listByUser(userId, { accountId, instrumentId })).filter((t) => t.id !== change.without);
-  const date = firstNegativeQuantityDate(change.withTrade ? [...history, change.withTrade] : history);
+  const splits = await r.splits.listByInstruments([instrumentId]);
+  const date = firstNegativeQuantityDate(change.withTrade ? [...history, change.withTrade] : history, splits);
   if (date) throw new InsufficientPositionError(date);
 }
 

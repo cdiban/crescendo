@@ -88,9 +88,9 @@ describe('SettingsScreen — instrumentos', () => {
 
     expect(calls(fetchMock)).toContain('GET /api/v1/instruments?limit=100&offset=0');
     expect(text(rowOf('Lista de instrumentos', /^KO/))).toMatch(
-      /^KOUSCoca-ColaAcciónUSDConsumer \/ BeveragesKOUS\$68,2003-10-2026 · Proveedor15% \(mercado\)US\$2,04EditarRegistrar precio$/,
+      /^KOUSCoca-ColaAcciónUSDConsumer \/ BeveragesKOUS\$68,2003-10-2026 · Proveedor15% \(mercado\)US\$2,04EditarRegistrar precioSplits$/,
     );
-    expect(text(rowOf('Lista de instrumentos', /^BITO/))).toBe('BITOUSBITOETFUSD—BITO-X(personalizado)—30%—EditarRegistrar precio');
+    expect(text(rowOf('Lista de instrumentos', /^BITO/))).toBe('BITOUSBITOETFUSD—BITO-X(personalizado)—30%—EditarRegistrar precioSplits');
 
     fireEvent.change(screen.getByLabelText('Buscar instrumento'), { target: { value: 'ko' } });
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
@@ -189,6 +189,100 @@ describe('SettingsScreen — instrumentos', () => {
     expect(lastBody(fetchMock, 'POST /api/v1/instruments')).toEqual({
       symbol: 'ABBV', marketCode: 'US', name: 'AbbVie', type: 'STOCK', sector: 'Health', industry: null, withholdingRate: null, annualDividendPerShare: null,
     });
+  });
+});
+
+describe('SettingsScreen — splits (v0.7)', () => {
+  const SPLITS = `/api/v1/instruments/${KO}/splits`;
+  const split = (id: string, effectiveDate: string, numerator: number, denominator: number) => ({
+    id, instrumentId: KO, effectiveDate, numerator, denominator, createdAt: '2026-10-01T00:00:00Z',
+  });
+  const forward = split('s0000000-0000-4000-8000-000000000001', '2026-06-10', 2, 1);
+  const reverse = split('s0000000-0000-4000-8000-000000000002', '2024-03-01', 1, 4);
+
+  async function openSplits() {
+    fireEvent.click(await screen.findByRole('tab', { name: 'Instrumentos' }));
+    await screen.findByRole('region', { name: 'Lista de instrumentos' });
+    fireEvent.click(within(rowOf('Lista de instrumentos', /^KO/)).getByRole('button', { name: 'Splits' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Splits de KO' });
+    await within(dialog).findByText('10-06-2026');
+    return dialog;
+  }
+
+  it('lista los splits, valida, muestra vista previa, 400/409/422 y al registrar recarga splits e instrumentos', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-03T12:00:00'));
+    try {
+      const fetchMock = mockFetch(routes([
+        { method: 'GET', path: SPLITS, status: 200, body: { items: [forward, reverse] } },
+        { method: 'POST', path: SPLITS, ...problem(400, 'VALIDATION_ERROR') },
+        { method: 'POST', path: SPLITS, ...problem(409, 'CONFLICT') },
+        { method: 'POST', path: SPLITS, ...problem(422, 'INSUFFICIENT_POSITION') },
+        { method: 'POST', path: SPLITS, status: 201, body: split('s3', '2026-10-03', 1, 2) },
+      ]));
+      render(<SettingsScreen api={createApi()} />);
+      const dialog = await openSplits();
+      const d = within(dialog);
+      expect(text(dialog)).toMatch(/todas las cuentas.*dividendo anual esperado/);
+      const rows = within(d.getByRole('region', { name: 'Splits registrados de KO' })).getAllByRole('row').slice(1).map(text);
+      expect(rows).toEqual(['10-06-20262 por 1SplitEliminar', '01-03-20241 por 4Reverse splitEliminar']);
+
+      const date = d.getByLabelText('Fecha efectiva') as HTMLInputElement;
+      expect(date.value).toBe('2026-10-03');
+      expect(date.max).toBe('2026-10-03');
+      const submit = () => fireEvent.click(d.getByRole('button', { name: 'Registrar split' }));
+      const posts = () => calls(fetchMock).filter((c) => c === `POST ${SPLITS}`).length;
+
+      fireEvent.change(d.getByLabelText('Acciones que recibes'), { target: { value: '2' } });
+      fireEvent.change(d.getByLabelText('Acciones que tenías'), { target: { value: '2' } });
+      submit();
+      expect((await d.findByRole('alert')).textContent).toMatch(/distintos/);
+      fireEvent.change(d.getByLabelText('Acciones que recibes'), { target: { value: '1' } });
+      expect(text(dialog)).toMatch(/Reverse split: 100 acciones pasan a ser 50\./);
+      fireEvent.change(date, { target: { value: '2026-10-04' } });
+      submit();
+      expect(d.getByRole('alert').textContent).toMatch(/no puede ser futura/);
+      expect(posts()).toBe(0);
+
+      fireEvent.change(date, { target: { value: '2026-10-03' } });
+      submit();
+      await vi.waitFor(() => expect(d.getByRole('alert').textContent).toMatch(/Revisa los datos/));
+      submit();
+      await vi.waitFor(() => expect(d.getByRole('alert').textContent).toMatch(/Ya hay un split de KO registrado en esa fecha/));
+      submit();
+      await vi.waitFor(() => expect(d.getByRole('alert').textContent).toMatch(/dejaría una posición negativa/));
+
+      const instrumentLoads = calls(fetchMock).filter((c) => c.startsWith('GET /api/v1/instruments?')).length;
+      submit();
+      expect((await d.findByRole('status')).textContent).toMatch(/Split 1 por 2 registrado desde el 03-10-2026/);
+      expect(lastBody(fetchMock, `POST ${SPLITS}`)).toEqual({ effectiveDate: '2026-10-03', numerator: 1, denominator: 2 });
+      await vi.waitFor(() => expect(calls(fetchMock).filter((c) => c === `GET ${SPLITS}`)).toHaveLength(2));
+      expect(calls(fetchMock).filter((c) => c.startsWith('GET /api/v1/instruments?')).length).toBe(instrumentLoads + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('elimina con confirmación; el 422 se muestra legible y el diálogo sigue abierto', async () => {
+    const fetchMock = mockFetch(routes([
+      { method: 'GET', path: SPLITS, status: 200, body: { items: [forward] } },
+      { method: 'DELETE', path: `${SPLITS}/${forward.id}`, ...problem(422, 'INSUFFICIENT_POSITION') },
+      { method: 'DELETE', path: `${SPLITS}/${forward.id}`, status: 204 },
+    ]));
+    render(<SettingsScreen api={createApi()} />);
+    const dialog = await openSplits();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Eliminar split 2 por 1 del 10-06-2026' }));
+    const confirm = within(await screen.findByRole('alertdialog', { name: 'Eliminar split 2 por 1 de KO' }));
+    fireEvent.click(confirm.getByRole('button', { name: 'Eliminar' }));
+    expect((await confirm.findByRole('alert')).textContent).toMatch(/Sin este split alguna posición quedaría negativa/);
+
+    const instrumentLoads = calls(fetchMock).filter((c) => c.startsWith('GET /api/v1/instruments?')).length;
+    fireEvent.click(confirm.getByRole('button', { name: 'Eliminar' }));
+    await vi.waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+    expect(calls(fetchMock).filter((c) => c === `DELETE ${SPLITS}/${forward.id}`)).toHaveLength(2);
+    await vi.waitFor(() => expect(calls(fetchMock).filter((c) => c === `GET ${SPLITS}`)).toHaveLength(2));
+    expect(calls(fetchMock).filter((c) => c.startsWith('GET /api/v1/instruments?')).length).toBe(instrumentLoads + 1);
   });
 });
 

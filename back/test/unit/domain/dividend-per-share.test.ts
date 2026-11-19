@@ -208,3 +208,52 @@ describe('sortHealthRows', () => {
     ]);
   });
 });
+
+describe('perSharePayments con splits (v0.7): DPA en acciones actuales', () => {
+  const split = (effectiveDate: string, numerator: number, denominator: number) => ({ instrumentId: 'i', effectiveDate, numerator, denominator });
+
+  test('informado y derivado se dividen por el factor de los splits posteriores a exDate (o al pago)', () => {
+    // 10 acciones hasta el split 2:1 del 2025-06-02, 20 después. Pagos de 0.5 por acción antes; 0.25 después.
+    const qty = (date: string) => d(date >= '2025-06-02' ? '20' : '10');
+    const { payments } = perSharePayments(
+      [
+        div('2025-03-15', '5'),
+        div('2025-05-30', '999', { perShare: d('0.5'), exDate: '2025-05-20' }),
+        div('2025-06-20', '5', { exDate: '2025-06-01' }),
+        div('2025-09-15', '5'),
+      ],
+      qty,
+      [],
+      [split('2025-06-02', 2, 1)],
+    );
+    assert.deepEqual(payments.map((p) => [p.paymentDate, p.perShare.toString()]), [
+      ['2025-03-15', '0.25'],
+      ['2025-05-30', '0.25'],
+      // exDate antes del split: cobró sobre 10 acciones (0.5) = 0.25 en acciones de hoy.
+      ['2025-06-20', '0.25'],
+      ['2025-09-15', '0.25'],
+    ]);
+  });
+
+  test('un split no es un recorte: BITO reverse 1 por 2 deja cada pago × 2 y el estado sin CUT', () => {
+    // 331.794 acciones; pagos mensuales de 0.0114 por acción; reverse split 1 por 2 el 2025-09-20.
+    const months = ['2024-10', '2024-11', '2024-12', '2025-01', '2025-02', '2025-03', '2025-04', '2025-05', '2025-06', '2025-07', '2025-08', '2025-09'];
+    const splits = [split('2025-09-20', 1, 2)];
+    const qty = (date: string) => d(date >= '2025-09-20' ? '165.897' : '331.794');
+    const dividends = months.map((m) => div(`${m}-10`, d('0.0114').mul(d('331.794')).toFixed(4)));
+    const { payments, excluded } = perSharePayments(dividends, qty, [], splits);
+    assert.ok(payments.every((p) => p.perShare.sub(d('0.0228')).abs().lte(d('0.000001'))), payments.map((p) => p.perShare.toString()).join());
+    const after = [...dividends, div('2025-10-10', d('0.0228').mul(d('165.897')).toFixed(4))];
+    const h = dividendHealth({ ...perSharePayments(after, qty, [], splits), firstTradeDate: '2024-01-01', today: '2025-10-15', threshold: d('0.10') });
+    assert.notEqual(h.status, 'CUT');
+    assert.equal(excluded, 0);
+  });
+
+  test('derivado sin exDate con un split en los 45 días previos al pago queda estimated', () => {
+    const qty = constant('10');
+    const near = perSharePayments([div('2025-07-01', '5')], qty, [], [split('2025-06-02', 2, 1)]);
+    const far = perSharePayments([div('2025-08-01', '5')], qty, [], [split('2025-06-02', 2, 1)]);
+    const withEx = perSharePayments([div('2025-07-01', '5', { exDate: '2025-06-20' })], qty, [], [split('2025-06-02', 2, 1)]);
+    assert.deepEqual([near.payments[0]!.estimated, far.payments[0]!.estimated, withEx.payments[0]!.estimated], [true, false, false]);
+  });
+});

@@ -43,6 +43,7 @@ import {
 } from './schemas.ts';
 import { TypeOrmFxRateRepository } from './typeorm-fx-rate-repository.ts';
 import { TypeOrmPriceRepository } from './typeorm-price-repository.ts';
+import { TypeOrmSplitRepository } from './typeorm-split-repository.ts';
 import { TypeOrmUserRepository } from './typeorm-user-repository.ts';
 
 async function page<R extends ObjectLiteral, T>(
@@ -225,6 +226,11 @@ export class TypeOrmTradeRepository implements TradeRepository {
     return records.map(tradeMapper.toDomain);
   }
 
+  async listAllByInstrument(instrumentId: string): Promise<Trade[]> {
+    const records = await this.#repo().find({ where: { instrumentId }, order: { tradeDate: 'ASC', createdAt: 'ASC', id: 'ASC' } });
+    return records.map(tradeMapper.toDomain);
+  }
+
   async add(trade: NewTrade): Promise<Trade> {
     return tradeMapper.toDomain(await this.#repo().save(this.#repo().create(tradeMapper.toRecord(trade))));
   }
@@ -400,5 +406,6 @@ export function createRepositories(manager: EntityManager): Repositories {
     cashMovements: new TypeOrmCashMovementRepository(manager),
     fxRates: new TypeOrmFxRateRepository(manager),
     prices: new TypeOrmPriceRepository(manager),
+    splits: new TypeOrmSplitRepository(manager),
   };
 }

@@ -25,6 +25,8 @@ export type Instrument = Schemas['Instrument'];
 export type InstrumentType = Schemas['InstrumentType'];
 export type InstrumentCreate = Schemas['InstrumentCreate'];
 export type InstrumentUpdate = Schemas['InstrumentUpdate'];
+export type Split = Schemas['Split'];
+export type SplitInput = Schemas['SplitInput'];
 export type Account = Schemas['Account'];
 export type AccountCreate = Schemas['AccountCreate'];
 export type AccountUpdate = Schemas['AccountUpdate'];
@@ -173,6 +175,12 @@ export function createApi(options: ApiOptions = {}) {
     /** Precio manual de una fecha: es global (catálogo compartido), no sólo del usuario. */
     setManualPrice: async (id: string, body: ManualPriceInput) =>
       (await request('PUT', `/instruments/${seg(id)}/prices`, body)) as Instrument,
+    /** (v0.7) Splits: dato global del catálogo; afectan a todas las cuentas y ajustan annualDividendPerShare. */
+    listSplits: async (id: string) => (await request('GET', `/instruments/${seg(id)}/splits`)) as Json<'listSplits', 200>,
+    createSplit: async (id: string, body: SplitInput) => (await request('POST', `/instruments/${seg(id)}/splits`, body)) as Split,
+    deleteSplit: async (id: string, splitId: string) => {
+      await request('DELETE', `/instruments/${seg(id)}/splits/${seg(splitId)}`);
+    },
 
     // ── Cuentas ──
     listAccounts: async () => (await request('GET', '/accounts')) as Json<'listAccounts', 200>,

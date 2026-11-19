@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { Plus, Search } from 'lucide-react';
-import type { Account, Api, Currency, Instrument, InstrumentType, Market, Preferences } from '../../api/client.ts';
+import { ApiError, type Account, type Api, type Currency, type Instrument, type InstrumentType, type Market, type Preferences, type Split } from '../../api/client.ts';
 import { InputError } from '../../api/errors.ts';
 import { DataTable, Pager } from '../../components/DataTable.tsx';
 import { FormField, FormGrid } from '../../components/form.tsx';
@@ -380,6 +380,7 @@ function InstrumentsSection({ api }: { api: Api }) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Instrument | null>(null);
   const [pricing, setPricing] = useState<Instrument | null>(null);
+  const [splitting, setSplitting] = useState<Instrument | null>(null);
   const refresh = () => setVersion((v) => v + 1);
   const markets = useAsync(() => api.listMarkets(), [api]);
   const instruments = useAsync(() => api.listInstruments({ q: q || undefined, limit: LIMIT, offset }), [api, q, offset, version]);
@@ -483,6 +484,9 @@ function InstrumentsSection({ api }: { api: Api }) {
                     <Button size="sm" variant="ghost" onClick={() => setPricing(i)}>
                       Registrar precio
                     </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setSplitting(i)}>
+                      Splits
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -505,6 +509,7 @@ function InstrumentsSection({ api }: { api: Api }) {
       )}
       {editing && <InstrumentEditDialog api={api} instrument={editing} onClose={() => setEditing(null)} onSaved={refresh} />}
       {pricing && <ManualPriceDialog api={api} instrument={pricing} onClose={() => setPricing(null)} onSaved={refresh} />}
+      {splitting && <SplitsDialog api={api} instrument={splitting} onClose={() => setSplitting(null)} onChanged={refresh} />}
     </>
   );
 }
@@ -632,6 +637,179 @@ function ManualPriceDialog({ api, instrument, onClose, onSaved }: { api: Api; in
         </FormField>
       </FormGrid>
     </ConfirmDialog>
+  );
+}
+
+// ── Splits (v0.7): dato global del instrumento ──
+
+const ratio = (s: Pick<Split, 'numerator' | 'denominator'>) => `${s.numerator} por ${s.denominator}`;
+const shares = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 4 });
+
+/** Mensajes propios de splits para 409 y 422; el resto (400, red…) usa el mensaje general. */
+function splitError(error: unknown, symbol: string, action: 'create' | 'delete'): unknown {
+  if (!(error instanceof ApiError)) return error;
+  if (error.code === 'CONFLICT') return new InputError(`Ya hay un split de ${symbol} registrado en esa fecha.`);
+  if (error.code === 'INSUFFICIENT_POSITION')
+    return new InputError(
+      action === 'create'
+        ? 'El split dejaría una posición negativa en alguna fecha (hay ventas posteriores que superan la cantidad resultante). Revisa la proporción o la fecha.'
+        : 'Sin este split alguna posición quedaría negativa (hay ventas posteriores que cuentan con las acciones del split). Corrige esas operaciones primero.',
+    );
+  return error;
+}
+
+function SplitsDialog({ api, instrument, onClose, onChanged }: { api: Api; instrument: Instrument; onClose: () => void; onChanged: () => void }) {
+  const ids = useId();
+  const [version, setVersion] = useState(0);
+  const [deleting, setDeleting] = useState<Split | null>(null);
+  const [date, setDate] = useState(today());
+  const [numerator, setNumerator] = useState('');
+  const [denominator, setDenominator] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const splits = useAsync(() => api.listSplits(instrument.id), [api, instrument.id, version]);
+  const changed = () => {
+    setVersion((v) => v + 1);
+    onChanged(); // annualDividendPerShare cambia en el servidor
+  };
+
+  const toInt = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v.trim()) : NaN);
+  const n = toInt(numerator);
+  const m = toInt(denominator);
+  const valid = n >= 1 && n <= 1000 && m >= 1 && m <= 1000 && n !== m;
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    if (!date) return setError('Indica la fecha efectiva.');
+    if (date > today()) return setError('La fecha efectiva no puede ser futura.');
+    if (!valid) return setError('Indica dos números enteros entre 1 y 1000, distintos entre sí.');
+    setBusy(true);
+    setError(null);
+    try {
+      await api.createSplit(instrument.id, { effectiveDate: date, numerator: n, denominator: m });
+      setMessage(`Split ${n} por ${m} registrado desde el ${formatDate(date)}.`);
+      setNumerator('');
+      setDenominator('');
+      changed();
+    } catch (err) {
+      setError(splitError(err, instrument.symbol, 'create'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={`Splits de ${instrument.symbol}`} onClose={onClose}>
+      <p className="rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground">
+        Un split de {instrument.symbol} afecta a todas las cuentas desde su fecha efectiva: cantidad y costo promedio por acción (el costo total
+        no cambia), y el dividendo anual esperado por acción se ajusta por el mismo factor. Tus operaciones y dividendos registrados no cambian.
+      </p>
+      {splits.error ? (
+        <ErrorAlert error={splits.error} />
+      ) : (
+        <DataTable
+          scroll="page"
+          label={`Splits registrados de ${instrument.symbol}`}
+          loading={!splits.data}
+          isEmpty={splits.data?.items.length === 0}
+          empty="No hay splits registrados."
+        >
+          <TableHeader>
+            <TableRow>
+              <TableHead scope="col">Fecha efectiva</TableHead>
+              <TableHead scope="col">Proporción</TableHead>
+              <TableHead scope="col">Tipo</TableHead>
+              <TableHead scope="col">
+                <span className="sr-only">Acciones</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {splits.data?.items.map((s) => (
+              <TableRow key={s.id}>
+                <TableCell>{formatDate(s.effectiveDate)}</TableCell>
+                <TableCell className="tabular-nums">{ratio(s)}</TableCell>
+                <TableCell>{s.numerator > s.denominator ? 'Split' : 'Reverse split'}</TableCell>
+                <TableCell className="text-right">
+                  <Button size="sm" variant="ghost" onClick={() => setDeleting(s)} aria-label={`Eliminar split ${ratio(s)} del ${formatDate(s.effectiveDate)}`}>
+                    Eliminar
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </DataTable>
+      )}
+
+      <form className="grid gap-3" aria-label="Registrar split" onSubmit={handleSubmit} noValidate>
+        <h3 className="font-heading text-sm font-semibold">Registrar split</h3>
+        <FormGrid className="lg:grid-cols-[auto_1fr]">
+          <FormField label="Fecha efectiva" htmlFor={`${ids}-date`}>
+            <Input id={`${ids}-date`} type="date" max={today()} value={date} onChange={(e) => setDate(e.target.value)} />
+          </FormField>
+          <fieldset className="grid min-w-0 content-start gap-1.5">
+            <legend className="mb-1.5 text-sm leading-5 font-medium">Proporción</legend>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              Recibes
+              <Input
+                aria-label="Acciones que recibes"
+                className="w-20"
+                inputMode="numeric"
+                value={numerator}
+                onChange={(e) => setNumerator(e.target.value)}
+              />
+              acciones por cada
+              <Input
+                aria-label="Acciones que tenías"
+                className="w-20"
+                inputMode="numeric"
+                value={denominator}
+                onChange={(e) => setDenominator(e.target.value)}
+              />
+            </div>
+          </fieldset>
+        </FormGrid>
+        <p className="text-sm text-muted-foreground" aria-live="polite">
+          {valid
+            ? `${n > m ? 'Split' : 'Reverse split'}: 100 acciones pasan a ser ${shares.format((100 * n) / m)}.`
+            : 'Ej.: split 2 por 1 (recibes 2 por cada 1) o reverse split 1 por 2.'}
+        </p>
+        <ErrorAlert error={error} />
+        {message && <Success>{message}</Success>}
+        <div className="flex justify-end">
+          <Button type="submit" disabled={busy}>
+            {busy ? 'Guardando…' : 'Registrar split'}
+          </Button>
+        </div>
+      </form>
+
+      {deleting && (
+        <ConfirmDialog
+          title={`Eliminar split ${ratio(deleting)} de ${instrument.symbol}`}
+          confirmLabel="Eliminar"
+          danger
+          onClose={() => setDeleting(null)}
+          onConfirm={() =>
+            api.deleteSplit(instrument.id, deleting.id).then(
+              () => {
+                setMessage(null);
+                changed();
+              },
+              (err: unknown) => {
+                throw splitError(err, instrument.symbol, 'delete');
+              },
+            )
+          }
+        >
+          <p>
+            Se deja de aplicar desde el {formatDate(deleting.effectiveDate)} en todas las cuentas y el dividendo anual esperado vuelve a su valor
+            anterior.
+          </p>
+        </ConfirmDialog>
+      )}
+    </Modal>
   );
 }
 

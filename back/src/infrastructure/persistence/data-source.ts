@@ -6,6 +6,7 @@ import { MultiCurrency1759700000000 } from './migrations/1759700000000-multi-cur
 import { MarketData1759800000000 } from './migrations/1759800000000-market-data.ts';
 import { IncomeGoal1759900000000 } from './migrations/1759900000000-income-goal.ts';
 import { DividendHealth1760000000000 } from './migrations/1760000000000-dividend-health.ts';
+import { Splits1760100000000 } from './migrations/1760100000000-splits.ts';
 import {
   AccountSchema,
   CashMovementSchema,
@@ -28,7 +29,7 @@ export function createDataSource(databaseUrl: string): DataSource {
     url: databaseUrl,
     entities: [UserSchema, SessionSchema, MarketSchema, InstrumentSchema, AccountSchema, TradeSchema, DividendSchema, CashMovementSchema, FxRateSchema, PriceQuoteSchema, PriceHistorySchema],
     // Lista explícita (sin globs): el orden y el contenido de las migraciones es revisable.
-    migrations: [InitialSchema1759500000000, PortfolioCore1759600000000, MultiCurrency1759700000000, MarketData1759800000000, IncomeGoal1759900000000, DividendHealth1760000000000],
+    migrations: [InitialSchema1759500000000, PortfolioCore1759600000000, MultiCurrency1759700000000, MarketData1759800000000, IncomeGoal1759900000000, DividendHealth1760000000000, Splits1760100000000],
     migrationsTransactionMode: 'each',
     synchronize: false,
     // Sin 'error'/'query': los errores no mapeados los registra el router, y así no

@@ -1,7 +1,8 @@
 import { roundAmount } from './amounts.ts';
 import type { Currency } from './currency.ts';
 import { Decimal } from './decimal.ts';
-import { HoldingsBook, sortTrades, type PositionTrade } from './positions.ts';
+import { eventDate, HoldingsBook, sortEvents, type PositionTrade } from './positions.ts';
+import type { SplitEvent } from './split.ts';
 
 export type HistoryPoint = {
   date: string;
@@ -26,11 +27,13 @@ export type HistoryInput = {
   /** Fechas a calcular, ascendentes. */
   dates: readonly string[];
   trades: readonly PositionTrade[];
+  /** (v0.7) Splits de los instrumentos: la cantidad de cada fecha está en las acciones de esa fecha. */
+  splits?: readonly SplitEvent[];
   currencyOf: (instrumentId: string) => Currency;
   movements: ReadonlyArray<{ date: string; type: string; amount: Decimal; currency: Currency }>;
   /** Dividendos PAID. */
   dividends: ReadonlyArray<{ paymentDate: string; netAmount: Decimal; currency: Currency }>;
-  /** Precio de un instrumento en una fecha (último cierre en o antes; null si no hay). */
+  /** Precio de un instrumento en una fecha (último cierre en o antes, en las acciones de esa fecha; null si no hay). */
   priceAt: (instrumentId: string, date: string) => Decimal | null;
   /** Monto → moneda de reporte al TC de `date`. */
   toReporting: (amount: Decimal, currency: Currency, date: string) => Decimal;
@@ -45,7 +48,7 @@ export function computePortfolioHistory(input: HistoryInput): HistoryPoint[] {
   const book = new HoldingsBook({
     toReporting: (instrumentId, amount, date) => input.toReporting(amount, input.currencyOf(instrumentId), date),
   });
-  const trades = sortTrades(input.trades);
+  const events = sortEvents(input.trades, input.splits);
   const movements = [...input.movements].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const dividends = [...input.dividends].sort((a, b) => (a.paymentDate < b.paymentDate ? -1 : a.paymentDate > b.paymentDate ? 1 : 0));
 
@@ -58,7 +61,7 @@ export function computePortfolioHistory(input: HistoryInput): HistoryPoint[] {
   const points: HistoryPoint[] = [];
 
   for (const date of input.dates) {
-    for (; ti < trades.length && trades[ti]!.tradeDate <= date; ti++) book.apply(trades[ti]!);
+    for (; ti < events.length && eventDate(events[ti]!) <= date; ti++) book.apply(events[ti]!);
     for (; mi < movements.length && movements[mi]!.date <= date; mi++) {
       const m = movements[mi]!;
       balances.set(m.currency, (balances.get(m.currency) ?? Decimal.ZERO).add(m.amount));

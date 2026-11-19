@@ -2,6 +2,7 @@ import { RATE_SCALE } from './amounts.ts';
 import { oneYearBefore } from './dates.ts';
 import { Decimal } from './decimal.ts';
 import type { DividendKind } from './dividend.ts';
+import { perShareAt, type SplitEvent } from './split.ts';
 
 // P4 — Dividendo por acción (DPA). Siempre en la moneda del instrumento: convertirlo haría que cada
 // movimiento del tipo de cambio pareciera una subida o un recorte.
@@ -22,7 +23,7 @@ export type DpsPayment = {
   perShare: Decimal;
   /** true = perShare informado (no derivado). */
   exact: boolean;
-  /** Derivado sin exDate y con operaciones del instrumento en (pago − 45 d, pago]: poco confiable. */
+  /** Derivado sin exDate y con operaciones o splits del instrumento en (pago − 45 d, pago]: poco confiable. */
   estimated: boolean;
 };
 
@@ -54,14 +55,19 @@ const minusDays = (date: string, days: number) => new Date(Date.parse(`${date}T0
  * DPA de cada pago. Un mismo pago (fecha de pago) repartido en varias cuentas cuenta una vez. Si el
  * dividendo trae `perShare`, manda; si no, Σ bruto / cantidad total en cartera a exDate (o a la fecha de
  * pago si no hay). Con cantidad 0 a esa fecha (dato inconsistente) el pago se excluye y se cuenta.
- * Un derivado sin exDate es `estimated` si hubo operaciones del instrumento (`tradeDates`, cualquier
- * cuenta) en (pago − 45 d, pago]: la cantidad a la fecha de pago puede no ser la que cobró.
+ * Un derivado sin exDate es `estimated` si hubo operaciones (`tradeDates`, cualquier cuenta) o splits del
+ * instrumento en (pago − 45 d, pago]: la cantidad a la fecha de pago puede no ser la que cobró.
+ * (v0.7) `quantityAt` entrega la cantidad en las acciones de esa fecha; todo DPA se lleva a acciones
+ * actuales dividiendo por el factor de los splits posteriores a exDate (o al pago).
  */
 export function perSharePayments(
   dividends: readonly DpsDividend[],
   quantityAt: (date: string) => Decimal,
   tradeDates: readonly string[] = [],
+  splits: readonly SplitEvent[] = [],
 ): { payments: DpsPayment[]; excluded: number } {
+  const changeDates = [...tradeDates, ...splits.map((s) => s.effectiveDate)];
+  const current = (perShare: Decimal, date: string) => perShareAt(perShare, splits, date, '9999-12-31');
   const groups = new Map<string, DpsDividend[]>();
   for (const d of dividends) groups.set(d.paymentDate, [...(groups.get(d.paymentDate) ?? []), d]);
 
@@ -69,20 +75,21 @@ export function perSharePayments(
   let excluded = 0;
   for (const [paymentDate, group] of [...groups.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
     const kind = group[0]!.kind;
+    const exDate = group.find((d) => d.exDate !== null)?.exDate ?? null;
     const informed = group.find((d) => d.perShare !== null)?.perShare ?? null;
     if (informed !== null) {
-      payments.push({ paymentDate, kind, perShare: informed, exact: true, estimated: false });
+      payments.push({ paymentDate, kind, perShare: current(informed, exDate ?? paymentDate), exact: true, estimated: false });
       continue;
     }
-    const exDate = group.find((d) => d.exDate !== null)?.exDate ?? null;
     const quantity = quantityAt(exDate ?? paymentDate);
     if (!quantity.isPositive()) {
       excluded += 1;
       continue;
     }
     const windowStart = minusDays(paymentDate, ESTIMATION_WINDOW_DAYS);
-    const estimated = exDate === null && tradeDates.some((t) => t > windowStart && t <= paymentDate);
-    payments.push({ paymentDate, kind, perShare: Decimal.sum(group.map((d) => d.grossAmount)).div(quantity, DPS_SCALE), exact: false, estimated });
+    const estimated = exDate === null && changeDates.some((t) => t > windowStart && t <= paymentDate);
+    const derived = Decimal.sum(group.map((d) => d.grossAmount)).div(quantity, DPS_SCALE);
+    payments.push({ paymentDate, kind, perShare: current(derived, exDate ?? paymentDate), exact: false, estimated });
   }
   return { payments, excluded };
 }

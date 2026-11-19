@@ -125,6 +125,59 @@ export interface paths {
         patch: operations["updateInstrument"];
         trace?: never;
     };
+    "/instruments/{instrumentId}/splits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+            };
+            cookie?: never;
+        };
+        /** (v0.7) Splits del instrumento, más reciente primero */
+        get: operations["listSplits"];
+        put?: never;
+        /**
+         * (v0.7) Registra un split o reverse split
+         * @description Afecta a todas las posiciones de todos los usuarios en el instrumento desde `effectiveDate` (ver convención v0.7).
+         *     En la misma transacción, si el instrumento tiene `annualDividendPerShare`, se divide por el factor (redondeo a 10 decimales):
+         *     es un monto por acción y pasa a acciones nuevas.
+         *     Errores: 400 si numerator = denominator o `effectiveDate` es posterior a hoy (fecha local del mercado);
+         *     409 CONFLICT si ya hay un split del instrumento en esa fecha; 422 INSUFFICIENT_POSITION si deja alguna posición negativa
+         *     en alguna fecha (p. ej. reverse split con ventas posteriores que superan la cantidad resultante).
+         */
+        post: operations["createSplit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/instruments/{instrumentId}/splits/{splitId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+                splitId: components["parameters"]["SplitId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * (v0.7) Elimina un split registrado por error
+         * @description Revierte el ajuste de `annualDividendPerShare` (lo multiplica por el factor, 10 decimales).
+         *     422 INSUFFICIENT_POSITION si sin el split alguna posición queda negativa (p. ej. ventas posteriores a un split 2:1).
+         *     404 si el split no existe o no es de ese instrumento.
+         */
+        delete: operations["deleteSplit"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/accounts": {
         parameters: {
             query?: never;
@@ -408,7 +461,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Cierres diarios del instrumento, más antiguo primero */
+        /**
+         * Cierres diarios del instrumento, más antiguo primero
+         * @description (v0.7) Precio real de cada fecha, en las acciones de esa fecha (sin ajustar por splits).
+         */
         get: operations["listInstrumentPrices"];
         /**
          * Registra un precio manual (para instrumentos sin cobertura o para corregir)
@@ -478,6 +534,8 @@ export interface paths {
          * @description Anunciados: dividendos ANNOUNCED registrados. Estimados: para cada posición abierta, cada dividendo PAID de los últimos 12 meses
          *     se proyecta al mismo mes del año siguiente con el mismo monto por acción (o bruto × cantidad actual / cantidad de entonces) y la
          *     cantidad actual, salvo que ya exista un ANNOUNCED de ese instrumento en ese mes. Montos netos con la retención efectiva.
+         *     (v0.7) El monto por acción y la cantidad de entonces se llevan a acciones actuales con los splits posteriores a la fecha ex
+         *     (o de pago); un split no cambia el ingreso proyectado.
          */
         get: operations["getDividendCalendar"];
         put?: never;
@@ -504,8 +562,9 @@ export interface paths {
          *       `ttmGrowth` = ttm / previousTtm − 1, sólo si la primera compra es anterior o igual al inicio del TTM anterior y previousTtm > 0; si no null.
          *     - `cagr` = (DPA último año no parcial / DPA primer año no parcial)^(1/(n−1)) − 1 con n ≥ 2 años no parciales; si no null.
          *     - `lastRegular` / `previousRegular`: los dos últimos pagos de tipo REGULAR (null si no hay). Un pago es `estimated` si su DPA es
-         *       derivado, no tiene exDate y hubo compras o ventas del instrumento en los 45 días previos a la fecha de pago (la cantidad
-         *       a la fecha de pago puede no ser la elegible en la fecha ex).
+         *       derivado, no tiene exDate y hubo compras, ventas o (v0.7) un split del instrumento en los 45 días previos a la fecha de pago
+         *       (la cantidad a la fecha de pago puede no ser la elegible en la fecha ex).
+         *     - (v0.7) Todo DPA (pagos, años, TTM, último/anterior regular) va en acciones actuales: un split no es un recorte ni un alza.
          *       (Si el DPA es derivado sin exDate pero la cantidad no cambió en esos 45 días, se considera confiable: `estimated` = false.)
          *     - `status` (se evalúa en este orden):
          *       1. SUSPENDED: previousTtm > 0 y ningún pago (no SPECIAL) en el TTM.
@@ -750,6 +809,29 @@ export interface components {
             annualDividendPerShare?: components["schemas"]["Decimal"] | null;
             /** @description Al cambiarlo */
             priceSymbol?: string | null;
+        };
+        /**
+         * @description (v0.7) Split o reverse split del instrumento (dato del catálogo global). Desde `effectiveDate` (inclusive, antes de las
+         *     operaciones de ese día) cada `denominator` acciones pasan a ser `numerator`. Ej.: split 2:1 → numerator 2, denominator 1;
+         *     reverse split 1 por 2 → numerator 1, denominator 2.
+         */
+        Split: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            instrumentId: string;
+            effectiveDate: components["schemas"]["Date"];
+            numerator: number;
+            denominator: number;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SplitInput: {
+            /** @description No puede ser posterior a la fecha local de hoy del mercado del instrumento */
+            effectiveDate: components["schemas"]["Date"];
+            numerator: number;
+            /** @description Distinto de numerator */
+            denominator: number;
         };
         InstrumentPage: {
             items: components["schemas"]["Instrument"][];
@@ -1318,7 +1400,7 @@ export interface components {
              * @description 400 VALIDATION_ERROR · 401 INVALID_CREDENTIALS | UNAUTHENTICATED · 403 FORBIDDEN · 404 NOT_FOUND ·
              *     405 METHOD_NOT_ALLOWED (con cabecera Allow) · 409 CONFLICT · 413 PAYLOAD_TOO_LARGE · 500 INTERNAL_ERROR ·
              *     422 reglas de negocio:
-             *       INSUFFICIENT_POSITION (venta/edición/borrado deja posición negativa en alguna fecha),
+             *       INSUFFICIENT_POSITION (venta/edición/borrado de una operación, o (v0.7) registro/borrado de un split, deja posición negativa en alguna fecha),
              *       CURRENCY_MISMATCH (moneda que no corresponde, p. ej. transferencia con moneda distinta de la indicada),
              *       ACCOUNT_ARCHIVED (movimientos nuevos en cuenta archivada),
              *       AUTOMATIC_MOVEMENT (borrar directamente un movimiento automático),
@@ -1401,6 +1483,7 @@ export interface components {
         InstrumentIdQuery: string;
         AccountId: string;
         InstrumentId: string;
+        SplitId: string;
         TradeId: string;
         DividendId: string;
         /** @description Default la preferencia del usuario */
@@ -1689,6 +1772,97 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listSplits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Lista completa (sin paginar) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Split"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createSplit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SplitInput"];
+            };
+        };
+        responses: {
+            /** @description Registrado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Split"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Ya existe un split del instrumento en esa fecha (code CONFLICT) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["BusinessRule"];
+        };
+    };
+    deleteSplit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrumentId: components["parameters"]["InstrumentId"];
+                splitId: components["parameters"]["SplitId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eliminado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["BusinessRule"];
         };
     };
     listAccounts: {
@@ -2413,7 +2587,7 @@ export interface operations {
             content: {
                 "application/json": {
                     date: components["schemas"]["Date"];
-                    /** @description > 0, en la moneda del instrumento */
+                    /** @description > 0, en la moneda del instrumento y en las acciones vigentes en `date` (v0.7) */
                     price: components["schemas"]["Decimal"];
                 };
             };

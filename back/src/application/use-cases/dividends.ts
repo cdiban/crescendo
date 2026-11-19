@@ -46,7 +46,8 @@ async function build(r: Repositories, userId: string, account: Account, instrume
   let quantity = input.quantity;
   if (input.perShare !== undefined && quantity === undefined) {
     const trades = await r.trades.listByUser(userId, { accountId: account.id, instrumentId: instrument.id });
-    const held = quantityAt(trades, input.exDate ?? input.paymentDate);
+    // En las acciones vigentes en esa fecha (v0.7).
+    const held = quantityAt(trades, input.exDate ?? input.paymentDate, await r.splits.listByInstruments([instrument.id]));
     if (!held.isPositive()) {
       throw new BusinessRuleError('NO_POSITION_FOR_DIVIDEND', 'No hay posición en esa fecha para calcular el dividendo por acción');
     }

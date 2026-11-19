@@ -6,6 +6,7 @@ import { Dividends } from './application/use-cases/dividends.ts';
 import { FxRates } from './application/use-cases/fx-rates.ts';
 import { Preferences } from './application/use-cases/preferences.ts';
 import { Prices } from './application/use-cases/prices.ts';
+import { Splits } from './application/use-cases/splits.ts';
 import { SyncPrices } from './application/use-cases/sync-prices.ts';
 import { SyncFx } from './application/use-cases/sync-fx.ts';
 import { ImportBundle } from './application/use-cases/import-bundle.ts';
@@ -70,6 +71,7 @@ export function buildContainer(config: Pick<Config, 'databaseUrl' | 'sessionTtlH
       // La API nunca lo usa: sólo el worker y la CLI sync-fx llaman a la fuente externa.
       syncFx: new SyncFx({ uow, provider: new MindicadorFxRateProvider(), clock, log }),
       prices: new Prices({ uow }),
+      splits: new Splits({ uow, clock }),
       // Igual que syncFx: sólo el worker y la CLI sync-prices salen a internet.
       syncPrices: new SyncPrices({
         uow,

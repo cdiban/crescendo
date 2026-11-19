@@ -19,7 +19,8 @@ import { quantityAt } from '../../domain/positions.ts';
 import { computePortfolioHistory, sampleDates, type HistoryPoint } from '../../domain/portfolio-history.ts';
 import { reportingMarketValue, valuePosition } from '../../domain/valuation.ts';
 import { ValidationError } from '../errors.ts';
-import { closeOnOrBefore, resolvePrice, type CurrentPrice } from './pricing.ts';
+import { closeOnOrBefore, dayBefore, inSharesOf, resolvePrice, type CurrentPrice } from './pricing.ts';
+import { perShareAt, sharesAt, type Split } from '../../domain/split.ts';
 import { NotFoundError } from '../errors.ts';
 import type { Clock } from '../ports/clock.ts';
 import type { Repositories } from '../ports/repositories.ts';
@@ -220,6 +221,13 @@ function mergeByInstrument(holdings: Row[]): Row[] {
   return [...merged.values()];
 }
 
+/** Splits agrupados por instrumento (lista vacía si no tiene). */
+function splitsByInstrument(splits: readonly Split[]): (instrumentId: string) => Split[] {
+  const map = new Map<string, Split[]>();
+  for (const s of splits) map.set(s.instrumentId, [...(map.get(s.instrumentId) ?? []), s]);
+  return (instrumentId) => map.get(instrumentId) ?? [];
+}
+
 /** Conversión a la moneda de reporte con los TC cargados hasta `asOf` ("actual" = último en o antes de asOf). */
 class Reporter {
   readonly currency: Currency;
@@ -300,13 +308,33 @@ export class Portfolio {
       r.dividends.listByUser(userId, { accountId: query.accountId, status: 'PAID', to: asOf }),
     ]);
     const instruments = new Map((await r.instruments.findByIds([...new Set(trades.map((t) => t.instrumentId))])).map((i) => [i.id, i]));
-    const perAccount = computeHoldings(trades, asOf, {
-      toReporting: (instrumentId, amount, date) => rep.atDate(amount, instruments.get(instrumentId)!.currency, date),
-    }) as Row[];
     const ids = [...instruments.keys()];
-    const [quotes, closes, markets] = await Promise.all([r.prices.quotes(ids), r.prices.latestCloses(ids, asOf), r.markets.list()]);
+    const [quotes, closes, markets, splits] = await Promise.all([
+      r.prices.quotes(ids),
+      r.prices.latestCloses(ids, asOf),
+      r.markets.list(),
+      r.splits.listByInstruments(ids),
+    ]);
+    const perAccount = computeHoldings(
+      trades,
+      asOf,
+      { toReporting: (instrumentId, amount, date) => rep.atDate(amount, instruments.get(instrumentId)!.currency, date) },
+      splits,
+    ) as Row[];
     const marketByCode = new Map(markets.map((m) => [m.code, m]));
-    const prices = new Map(ids.map((id) => [id, resolvePrice(quotes.get(id), closes.get(id), asOf)]));
+    const splitsOf = splitsByInstrument(splits);
+    // Precio en las acciones de asOf (v0.7). La fecha del cierre anterior sólo hace falta si el instrumento tiene splits.
+    const prices = new Map(
+      await Promise.all(
+        ids.map(async (id) => {
+          const price = resolvePrice(quotes.get(id), closes.get(id), asOf);
+          const own = splitsOf(id);
+          const previousCloseDate =
+            own.length > 0 && price?.previousClose ? ((await r.prices.latestCloses([id], dayBefore(price.date))).get(id)?.date ?? null) : null;
+          return [id, inSharesOf(price, asOf, own, previousCloseDate)] as const;
+        }),
+      ),
+    );
     const holdings = query.groupBy === 'instrument' ? mergeByInstrument(perAccount) : perAccount;
     const windowStart = oneYearBefore(asOf);
 
@@ -544,9 +572,11 @@ export class Portfolio {
         r.markets.list(),
       ]);
       const ids = [...new Set([...trades, ...announced].map((x) => x.instrumentId))];
-      const instruments = new Map((await r.instruments.findByIds(ids)).map((i) => [i.id, i]));
+      const [instrumentList, splits] = await Promise.all([r.instruments.findByIds(ids), r.splits.listByInstruments(ids)]);
+      const instruments = new Map(instrumentList.map((i) => [i.id, i]));
+      const splitsOf = splitsByInstrument(splits);
       const marketByCode = new Map(markets.map((m) => [m.code, m]));
-      const holdings = new Map(computeHoldings(trades, today).map((h) => [`${h.accountId}|${h.instrumentId}`, h.quantity]));
+      const holdings = new Map(computeHoldings(trades, today, undefined, splits).map((h) => [`${h.accountId}|${h.instrumentId}`, h.quantity]));
       const item = (instrumentId: string, status: CalendarItem['status'], date: string, net: Decimal): CalendarItem => {
         const instrument = instruments.get(instrumentId)!;
         return {
@@ -567,8 +597,17 @@ export class Portfolio {
         if (!quantityNow?.isPositive()) continue;
         const instrument = instruments.get(d.instrumentId)!;
         const accountTrades = trades.filter((t) => t.accountId === d.accountId && t.instrumentId === d.instrumentId);
+        // v0.7: monto por acción y cantidad de entonces en acciones actuales; un split no cambia el ingreso proyectado.
+        const own = splitsOf(d.instrumentId);
+        const then = d.exDate ?? d.paymentDate;
+        const quantityThen = d.quantity ?? quantityAt(accountTrades, then, own);
         const estimate = estimateNextDividend(
-          { paymentDate: d.paymentDate, perShare: d.perShare, grossAmount: d.grossAmount, quantityThen: d.quantity ?? quantityAt(accountTrades, d.exDate ?? d.paymentDate) },
+          {
+            paymentDate: d.paymentDate,
+            perShare: d.perShare && perShareAt(d.perShare, own, then, today),
+            grossAmount: d.grossAmount,
+            quantityThen: sharesAt(quantityThen, own, then, today),
+          },
           { quantityNow, withholdingRate: effectiveWithholdingRate(instrument, marketByCode.get(instrument.marketCode)!) },
         );
         if (estimate) estimated.push(item(d.instrumentId, 'ESTIMATED', estimate.date, estimate.netAmount));
@@ -673,8 +712,10 @@ export class Portfolio {
       r.trades.listByUser(userId),
       r.dividends.listByUser(userId, { status: 'PAID', to: today }),
     ]);
+    const splits = await r.splits.listByInstruments([...new Set(trades.map((t) => t.instrumentId))]);
+    const splitsOf = splitsByInstrument(splits);
     const quantity = new Map<string, Decimal>();
-    for (const h of computeHoldings(trades, today)) quantity.set(h.instrumentId, (quantity.get(h.instrumentId) ?? Decimal.ZERO).add(h.quantity));
+    for (const h of computeHoldings(trades, today, undefined, splits)) quantity.set(h.instrumentId, (quantity.get(h.instrumentId) ?? Decimal.ZERO).add(h.quantity));
     const open = [...quantity.entries()].filter(([, q]) => q.isPositive()).map(([id]) => id);
     const instruments = new Map((await r.instruments.findByIds(open)).map((i) => [i.id, i]));
 
@@ -682,11 +723,14 @@ export class Portfolio {
       const instrument = instruments.get(instrumentId)!;
       const own = trades.filter((t) => t.instrumentId === instrumentId);
       const firstTradeDate = own.reduce((min, t) => (t.tradeDate < min ? t.tradeDate : min), own[0]!.tradeDate);
-      // Cantidad total entre cuentas a una fecha (quantityAt suma todas las operaciones del instrumento).
+      // Cantidad total entre cuentas a una fecha (quantityAt suma todas las operaciones del instrumento), en las
+      // acciones de esa fecha; perSharePayments lleva cada DPA a acciones actuales (v0.7).
+      const ownSplits = splitsOf(instrumentId);
       const { payments, excluded } = perSharePayments(
         dividends.filter((d) => d.instrumentId === instrumentId),
-        (date) => quantityAt(own, date),
+        (date) => quantityAt(own, date, ownSplits),
         own.map((t) => t.tradeDate),
+        ownSplits,
       );
       return {
         instrumentId,
@@ -788,21 +832,24 @@ export class Portfolio {
       }
       const rep = await this.#reporter(r, userId, query.reportingCurrency, to);
       const ids = [...new Set(trades.map((t) => t.instrumentId))];
-      const [instruments, movements, dividends, closes, quotes] = await Promise.all([
+      const [instruments, movements, dividends, closes, quotes, splits] = await Promise.all([
         r.instruments.findByIds(ids),
         r.cashMovements.listByUser(userId, { to }),
         r.dividends.listByUser(userId, { status: 'PAID', to }),
         r.prices.closesUpTo(ids, to),
         r.prices.quotes(ids),
+        r.splits.listByInstruments(ids),
       ]);
       const currency = new Map(instruments.map((i) => [i.id, i.currency]));
+      const splitsOf = splitsByInstrument(splits);
       const items = computePortfolioHistory({
         dates,
         trades,
+        splits,
         currencyOf: (id) => currency.get(id)!,
         movements,
         dividends,
-        priceAt: (id, date) => resolvePrice(quotes.get(id), closeOnOrBefore(closes.get(id) ?? [], date), date)?.price ?? null,
+        priceAt: (id, date) => inSharesOf(resolvePrice(quotes.get(id), closeOnOrBefore(closes.get(id) ?? [], date), date), date, splitsOf(id), null)?.price ?? null,
         toReporting: (amount, c, date) => rep.atDate(amount, c, date),
       });
       return { reportingCurrency: rep.currency, items };

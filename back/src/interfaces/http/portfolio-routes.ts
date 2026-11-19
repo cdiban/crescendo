@@ -13,6 +13,8 @@ import type { DividendInput, Dividends } from '../../application/use-cases/divid
 import type { FxRates } from '../../application/use-cases/fx-rates.ts';
 import type { Preferences } from '../../application/use-cases/preferences.ts';
 import type { Prices } from '../../application/use-cases/prices.ts';
+import type { Splits } from '../../application/use-cases/splits.ts';
+import { SPLIT_TERM_MAX } from '../../domain/split.ts';
 import type { Portfolio } from '../../application/use-cases/portfolio.ts';
 import type { TradeInput, Trades } from '../../application/use-cases/trades.ts';
 import { HttpError } from './problem.ts';
@@ -33,6 +35,7 @@ import {
   presentAllocation,
   presentSnowball,
   presentPositions,
+  presentSplit,
   presentSummary,
   presentTrade,
   presentTransfer,
@@ -50,6 +53,7 @@ export type PortfolioUseCases = {
   preferences: Preferences;
   fxRates: FxRates;
   prices: Prices;
+  splits: Splits;
 };
 
 type Authed = (handler: (req: HttpRequest, user: User) => Promise<HttpResponse>) => (req: HttpRequest) => Promise<HttpResponse>;
@@ -136,7 +140,7 @@ function readDividendInput(body: unknown): DividendInput {
 }
 
 export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCases, authed: Authed): void {
-  const { catalog, accounts, trades, dividends, cash, portfolio, preferences, fxRates, prices } = useCases;
+  const { catalog, accounts, trades, dividends, cash, portfolio, preferences, fxRates, prices, splits } = useCases;
 
   // ── Preferencias y tipos de cambio (v0.3) ──
   router.add('GET', `${API}/me/preferences`, authed(async (_req, user) => ok(presentPreferences(await preferences.get(user.id)))));
@@ -246,6 +250,24 @@ export function registerPortfolioRoutes(router: Router, useCases: PortfolioUseCa
     if (input.price && !input.price.isPositive()) r.errors.push({ field: 'price', message: 'Debe ser mayor que 0' });
     r.finish();
     return ok(presentInstrument(await prices.setManual(id, input.date!, input.price!)));
+  }));
+
+  // ── Splits (v0.7) ──
+  router.add('GET', `${API}/instruments/:id/splits`, authed(async (req) => ok({ items: (await splits.list(idParam(req, 'id'))).map(presentSplit) })));
+  router.add('POST', `${API}/instruments/:id/splits`, authed(async (req) => {
+    const id = idParam(req, 'id');
+    const r = Reader.body(req.body, ['effectiveDate', 'numerator', 'denominator']);
+    const input = {
+      effectiveDate: r.date('effectiveDate'),
+      numerator: r.integer('numerator', { min: 1, max: SPLIT_TERM_MAX }),
+      denominator: r.integer('denominator', { min: 1, max: SPLIT_TERM_MAX }),
+    };
+    r.finish();
+    return created(presentSplit(await splits.create(id, { effectiveDate: input.effectiveDate!, numerator: input.numerator!, denominator: input.denominator! })));
+  }));
+  router.add('DELETE', `${API}/instruments/:id/splits/:splitId`, authed(async (req) => {
+    await splits.delete(idParam(req, 'id'), idParam(req, 'splitId'));
+    return noContent;
   }));
 
   // ── Cuentas ──

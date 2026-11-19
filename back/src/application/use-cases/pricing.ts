@@ -1,5 +1,6 @@
 import type { Decimal } from '../../domain/decimal.ts';
 import type { PriceSource } from '../../domain/market-data.ts';
+import { perShareAt, type SplitEvent } from '../../domain/split.ts';
 import type { StoredClose, StoredQuote } from '../ports/repositories.ts';
 
 export type CurrentPrice = { price: Decimal; previousClose: Decimal | null; asOf: Date; date: string; source: PriceSource; fromQuote: boolean };
@@ -31,4 +32,20 @@ export function closeOnOrBefore(closes: readonly StoredClose[], date: string): S
     }
   }
   return found;
+}
+
+export const dayBefore = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * (v0.7) Precio guardado (real, en las acciones de su fecha) llevado a las acciones de `date`: ÷ el factor
+ * de los splits en (fecha del precio, date]. El cierre anterior se lleva igual desde su propia fecha, así
+ * un split no aparece como variación del día. Sin splits devuelve el mismo objeto.
+ */
+export function inSharesOf(price: CurrentPrice | null, date: string, splits: readonly SplitEvent[], previousCloseDate: string | null): CurrentPrice | null {
+  if (!price || splits.length === 0) return price;
+  return {
+    ...price,
+    price: perShareAt(price.price, splits, price.date, date),
+    previousClose: price.previousClose && perShareAt(price.previousClose, splits, previousCloseDate ?? dayBefore(price.date), date),
+  };
 }

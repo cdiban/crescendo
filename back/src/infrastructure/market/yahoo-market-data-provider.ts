@@ -1,3 +1,4 @@
+import { PRICE_SCALE } from '../../domain/amounts.ts';
 import { Decimal } from '../../domain/decimal.ts';
 import { localDate } from '../../domain/market-data.ts';
 import {
@@ -70,7 +71,7 @@ export class YahooMarketDataProvider implements MarketDataProvider {
   async fetchChart(priceSymbol: string, from: string): Promise<MarketChart> {
     const period1 = Date.parse(`${from}T00:00:00Z`) / 1000;
     const period2 = Math.floor(this.#now().getTime() / 1000) + 86_400;
-    const url = `${this.#baseUrl}/v8/finance/chart/${encodeURIComponent(priceSymbol)}?period1=${period1}&period2=${period2}&interval=1d&includePrePost=false`;
+    const url = `${this.#baseUrl}/v8/finance/chart/${encodeURIComponent(priceSymbol)}?period1=${period1}&period2=${period2}&interval=1d&includePrePost=false&events=split`;
 
     for (let attempt = 0; ; attempt++) {
       try {
@@ -114,6 +115,7 @@ type ChartResult = {
   meta?: { currency?: unknown; exchangeTimezoneName?: unknown; regularMarketPrice?: unknown; regularMarketTime?: unknown };
   timestamp?: unknown;
   indicators?: { quote?: Array<{ close?: unknown }> };
+  events?: { splits?: Record<string, { date?: unknown; numerator?: unknown; denominator?: unknown }> };
 };
 
 function parse(body: unknown, priceSymbol: string): MarketChart {
@@ -138,7 +140,22 @@ function parse(body: unknown, priceSymbol: string): MarketChart {
     if (typeof t !== 'number' || typeof close !== 'number' || !(close > 0)) return;
     byDate.set(localDate(timeZone, new Date(t * 1000)), float32ToDecimal(close));
   });
-  const closes = [...byDate.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, close]) => ({ date, close }));
+  // Yahoo ajusta los cierres anteriores a cada split (con días de retraso). Se deshace el ajuste sólo con
+  // los splits que informa esta misma respuesta: así se guarda siempre el precio real de cada fecha.
+  const splits = Object.values(result!.events?.splits ?? {}).map((s) => {
+    const { date, numerator, denominator } = s ?? {};
+    if (typeof date !== 'number' || typeof numerator !== 'number' || typeof denominator !== 'number' || !(numerator > 0) || !(denominator > 0)) {
+      return fail('split inválido');
+    }
+    return { date: localDate(timeZone, new Date(date * 1000)), numerator: numberToDecimal(numerator), denominator: numberToDecimal(denominator) };
+  });
+  const real = (date: string, close: Decimal) => {
+    const applied = splits.filter((s) => date < s.date);
+    if (applied.length === 0) return close;
+    const [num, den] = applied.reduce(([n, d], s) => [n.mul(s.numerator), d.mul(s.denominator)], [Decimal.ONE, Decimal.ONE]);
+    return close.mul(num).div(den, PRICE_SCALE);
+  };
+  const closes = [...byDate.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, close]) => ({ date, close: real(date, close) }));
 
   let quote: MarketChart['quote'] = null;
   if (typeof meta!.regularMarketPrice === 'number' && meta!.regularMarketPrice > 0 && typeof meta!.regularMarketTime === 'number') {

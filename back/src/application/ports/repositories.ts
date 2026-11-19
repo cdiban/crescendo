@@ -8,6 +8,7 @@ import type { FetchedFxQuote } from './fx-rate-provider.ts';
 import type { Instrument, NewInstrument } from '../../domain/instrument.ts';
 import type { Market } from '../../domain/market.ts';
 import type { PriceSource } from '../../domain/market-data.ts';
+import type { NewSplit, Split } from '../../domain/split.ts';
 import type { NewTrade, Trade } from '../../domain/trade.ts';
 import type { Page, PageRequest } from './page.ts';
 import type { UserRepository } from './user-repository.ts';
@@ -63,6 +64,16 @@ export interface PriceRepository {
   clearProviderData(instrumentId: string): Promise<void>;
 }
 
+/** (v0.7) Splits: catálogo global. */
+export interface SplitRepository {
+  /** Splits de los instrumentos, más antiguo primero. */
+  listByInstruments(instrumentIds: readonly string[]): Promise<Split[]>;
+  findById(instrumentId: string, id: string): Promise<Split | null>;
+  /** Lanza ConflictError si ya hay un split del instrumento en esa fecha. */
+  add(split: NewSplit): Promise<Split>;
+  delete(id: string): Promise<void>;
+}
+
 /** Vista global (todos los usuarios) que necesita el worker para decidir qué precios traer. */
 export type TradedInstrument = { instrumentId: string; firstTradeDate: string; open: boolean };
 
@@ -92,6 +103,8 @@ export interface TradeRepository {
   add(trade: NewTrade): Promise<Trade>;
   update(trade: Trade): Promise<void>;
   delete(userId: string, id: string): Promise<void>;
+  /** Global, sin filtrar por usuario: todas las operaciones del instrumento (validación de splits). */
+  listAllByInstrument(instrumentId: string): Promise<Trade[]>;
   /** Global, sin filtrar por usuario: instrumentos con operaciones, su primera fecha y si alguien tiene posición abierta. */
   tradedInstruments(): Promise<TradedInstrument[]>;
 }
@@ -159,4 +172,5 @@ export type Repositories = {
   cashMovements: CashMovementRepository;
   fxRates: FxRateRepository;
   prices: PriceRepository;
+  splits: SplitRepository;
 };

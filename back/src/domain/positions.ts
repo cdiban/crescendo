@@ -1,6 +1,7 @@
 import { roundAmount, QUANTITY_SCALE } from './amounts.ts';
 import { Decimal } from './decimal.ts';
 import { InsufficientPositionError } from './errors.ts';
+import { splitQuantity, type SplitEvent } from './split.ts';
 import type { Trade } from './trade.ts';
 
 export type PositionTrade = Pick<
@@ -48,6 +49,22 @@ export function sortTrades<T extends PositionTrade>(trades: readonly T[]): T[] {
   );
 }
 
+export type PositionEvent = PositionTrade | SplitEvent;
+
+export const eventDate = (e: PositionEvent): string => ('effectiveDate' in e ? e.effectiveDate : e.tradeDate);
+
+/** Operaciones (orden de sortTrades) y splits en orden cronológico; un split va antes que las operaciones de su fecha. */
+export function sortEvents(trades: readonly PositionTrade[], splits: readonly SplitEvent[] = []): PositionEvent[] {
+  const sortedSplits = [...splits].sort((a, b) => (a.effectiveDate < b.effectiveDate ? -1 : a.effectiveDate > b.effectiveDate ? 1 : 0));
+  const result: PositionEvent[] = [];
+  let si = 0;
+  for (const t of sortTrades(trades)) {
+    for (; si < sortedSplits.length && sortedSplits[si]!.effectiveDate <= t.tradeDate; si++) result.push(sortedSplits[si]!);
+    result.push(t);
+  }
+  return [...result, ...sortedSplits.slice(si)];
+}
+
 type HoldingState = {
   accountId: string;
   instrumentId: string;
@@ -72,8 +89,16 @@ export class HoldingsBook {
     this.#conversion = conversion;
   }
 
-  /** Las operaciones deben llegar en el orden de sortTrades. */
-  apply(t: PositionTrade): void {
+  /**
+   * Los eventos deben llegar en el orden de sortEvents. Un split multiplica la cantidad de todas las
+   * cuentas del instrumento por su factor (10 decimales); el costo total no cambia.
+   */
+  apply(e: PositionEvent): void {
+    if ('effectiveDate' in e) {
+      for (const s of this.#states.values()) if (s.instrumentId === e.instrumentId) s.quantity = splitQuantity(s.quantity, e);
+      return;
+    }
+    const t = e;
     const key = `${t.accountId}\u0000${t.instrumentId}`;
     let s = this.#states.get(key);
     if (!s) {
@@ -148,40 +173,49 @@ export class HoldingsBook {
  * un segundo costo promedio en moneda de reporte (cada compra a su TC; las ventas descargan la
  * misma fracción del costo en reporte que del costo original).
  */
-export function computeHoldings(trades: readonly PositionTrade[], asOf?: string, conversion?: ReportingConversion): Holding[] {
+export function computeHoldings(
+  trades: readonly PositionTrade[],
+  asOf?: string,
+  conversion?: ReportingConversion,
+  splits: readonly SplitEvent[] = [],
+): Holding[] {
   const book = new HoldingsBook(conversion);
-  for (const t of sortTrades(trades)) {
-    if (asOf === undefined || t.tradeDate <= asOf) book.apply(t);
+  for (const e of sortEvents(trades, splits)) {
+    if (asOf === undefined || eventDate(e) <= asOf) book.apply(e);
   }
   return book.holdings();
 }
 
 type QuantityTrade = Pick<PositionTrade, 'side' | 'tradeDate' | 'quantity'>;
+type QuantitySplit = Pick<SplitEvent, 'effectiveDate' | 'numerator' | 'denominator'>;
 
-function closingQuantities(trades: readonly QuantityTrade[]): Array<[string, Decimal]> {
+/** Cantidad al cierre de cada fecha con operaciones o splits; el split se aplica antes de las operaciones de su día. */
+function closingQuantities(trades: readonly QuantityTrade[], splits: readonly QuantitySplit[]): Array<[string, Decimal]> {
   const byDate = new Map<string, Decimal>();
   for (const t of trades) {
     const delta = t.side === 'BUY' ? t.quantity : t.quantity.neg();
     byDate.set(t.tradeDate, (byDate.get(t.tradeDate) ?? Decimal.ZERO).add(delta));
   }
+  for (const s of splits) if (!byDate.has(s.effectiveDate)) byDate.set(s.effectiveDate, Decimal.ZERO);
   let running = Decimal.ZERO;
   return [...byDate.entries()]
     .sort(([a], [b]) => (a < b ? -1 : 1))
     .map(([date, delta]) => {
+      for (const s of splits) if (s.effectiveDate === date) running = splitQuantity(running, s);
       running = running.add(delta);
       return [date, running];
     });
 }
 
-/** Primera fecha en que la cantidad al cierre queda negativa (trades de una sola cuenta + instrumento). */
-export function firstNegativeQuantityDate(trades: readonly QuantityTrade[]): string | null {
-  return closingQuantities(trades).find(([, quantity]) => quantity.isNegative())?.[0] ?? null;
+/** Primera fecha en que la cantidad al cierre queda negativa (trades y splits de una sola cuenta + instrumento). */
+export function firstNegativeQuantityDate(trades: readonly QuantityTrade[], splits: readonly QuantitySplit[] = []): string | null {
+  return closingQuantities(trades, splits).find(([, quantity]) => quantity.isNegative())?.[0] ?? null;
 }
 
-/** Cantidad al cierre de `date` (trades de una sola cuenta + instrumento). */
-export function quantityAt(trades: readonly QuantityTrade[], date: string): Decimal {
+/** Cantidad al cierre de `date`, en las acciones vigentes en esa fecha (trades y splits de un solo instrumento). */
+export function quantityAt(trades: readonly QuantityTrade[], date: string, splits: readonly QuantitySplit[] = []): Decimal {
   let result = Decimal.ZERO;
-  for (const [d, quantity] of closingQuantities(trades)) {
+  for (const [d, quantity] of closingQuantities(trades, splits)) {
     if (d > date) break;
     result = quantity;
   }

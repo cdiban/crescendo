@@ -1,3 +1,4 @@
+import type { Split } from '../../domain/split.ts';
 import type { CashMovement } from '../../domain/cash-movement.ts';
 import type { Decimal } from '../../domain/decimal.ts';
 import type { Market } from '../../domain/market.ts';
@@ -61,6 +62,15 @@ export const presentInstrument = (i: InstrumentView) => ({
         previousClose: sn(i.lastPrice.previousClose),
       }
     : null,
+});
+
+export const presentSplit = (x: Split) => ({
+  id: x.id,
+  instrumentId: x.instrumentId,
+  effectiveDate: x.effectiveDate,
+  numerator: x.numerator,
+  denominator: x.denominator,
+  createdAt: x.createdAt.toISOString(),
 });
 
 export const presentAccount = (a: AccountView) => ({
