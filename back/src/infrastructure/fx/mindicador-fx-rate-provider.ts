@@ -17,7 +17,7 @@ export class MindicadorFxRateProvider implements FxRateProvider {
   constructor(options: { fetch?: typeof fetch; baseUrl?: string; timeoutMs?: number } = {}) {
     this.#fetch = options.fetch ?? fetch;
     this.#baseUrl = options.baseUrl ?? 'https://mindicador.cl/api';
-    this.#timeoutMs = options.timeoutMs ?? 15_000;
+    this.#timeoutMs = options.timeoutMs ?? 30_000;
   }
 
   async fetchYear(currency: FxQuote['currency'], year: number): Promise<FetchedFxQuote[]> {

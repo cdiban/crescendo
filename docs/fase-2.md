@@ -58,7 +58,7 @@ Redondeo: los cálculos internos van sin redondear (Decimal); las salidas en rep
 ## 4. Sincronización (servicio `worker`)
 
 - Nuevo servicio en Docker Compose `worker`: **misma imagen que `api`**, otro entrypoint (`node src/worker.ts`). Así los procesos programados no corren dentro de la API (si la API se escala o se reinicia, no se duplican) y en F3 los precios de mercado se suman al mismo worker.
-- Al iniciar: **backfill** desde `FX_BACKFILL_FROM` (default `2024-01-01`) hasta hoy, sólo de los años que falten (≈ 3 llamadas por año). Después, cada `FX_SYNC_INTERVAL_MINUTES` (default 360) refresca el año en curso. Upsert idempotente.
+- Al iniciar: **backfill** desde `FX_BACKFILL_FROM` (default `2024-01-01`) hasta hoy, sólo de los años que falten (≈ 3 llamadas por año). Después revisa cada 15 min y refresca el año en curso si el último intento falló (o tuvo errores) o si pasaron `FX_SYNC_INTERVAL_MINUTES` (default 360) de **hora real** desde la última carga exitosa: el timer del contenedor no avanza mientras el equipo duerme (ajuste 2026-11-21). Upsert idempotente.
 - Errores de red o de la fuente: log y reintento en el próximo ciclo; nunca tumban el worker. La API no llama nunca a mindicador: sólo lee la BD.
 - CLI `sync-fx --from YYYY-MM-DD` para forzar una carga manual.
 - Sin dependencias nuevas (scheduler con `setTimeout`, `fetch` nativo).
