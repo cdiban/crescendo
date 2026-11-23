@@ -289,6 +289,57 @@ describe('scheduler', () => {
     assert.match(second.stdout, /próximo respaldo/);
   });
 
+  // Reloj simulado: `date`, `sleep` y `backup-now` falsos por PATH. Cada `sleep N` avanza el reloj
+  // N segundos sin esperar y detiene el scheduler al llegar a FAKE_END. Estado en /tmp (sin volumen).
+  const FAKES = String.raw`
+set -eu
+mkdir -p /tmp/fake /tmp/state/state
+TZ=America/Santiago /bin/busybox date -d "$FAKE_START" +%s >/tmp/now
+export FAKE_END=$(TZ=America/Santiago /bin/busybox date -d "$FAKE_END" +%s)
+echo $(( $(cat /tmp/now) - FAKE_LAST_AGO )) >/tmp/state/state/last-success
+echo "$FAKE_DAILY" >/tmp/state/state/daily
+cat >/tmp/fake/date <<'EOF'
+#!/bin/sh
+exec /bin/busybox date -d "@$(cat /tmp/now)" "$@"
+EOF
+cat >/tmp/fake/sleep <<'EOF'
+#!/bin/sh
+now=$(( $(cat /tmp/now) + $1 )); echo $now >/tmp/now
+[ $now -lt $FAKE_END ] || kill -TERM $PPID
+EOF
+cat >/tmp/fake/backup-now <<'EOF'
+#!/bin/sh
+n=$(( $(cat /tmp/calls 2>/dev/null || echo 0) + 1 )); echo $n >/tmp/calls
+if [ $n -le "$FAKE_FAILS" ]; then echo "backup-now $(date '+%F %H:%M') falla"; exit 1; fi
+date +%s >/tmp/state/state/last-success
+echo "backup-now $(date '+%F %H:%M') ok"
+EOF
+chmod +x /tmp/fake/*
+export PATH=/tmp/fake:$PATH BACKUP_STATE_DIR=/tmp/state
+exec timeout -s TERM 120 scheduler`;
+  type Sim = { start: string; end: string; lastAgoHours: number; daily: string; fails?: number };
+  const simulate = async ({ start, end, lastAgoHours, daily, fails = 0 }: Sim) => {
+    const env = { FAKE_START: start, FAKE_END: end, FAKE_LAST_AGO: String(lastAgoHours * 3600), FAKE_DAILY: daily, FAKE_FAILS: String(fails) };
+    const r = await service(['sh', '-c', FAKES], { env: backupEnv({ BACKUP_TIME: '23:00', ...env }) });
+    assert.match(r.stdout, /detenido/, `el reloj simulado no llegó a FAKE_END\n${r.stdout}\n${r.stderr}`);
+    return [...r.stdout.matchAll(/backup-now (.+)/g)].map((m) => m[1]);
+  };
+
+  test('respalda fuera de la ventana en cuanto el último cumple 24 h, sin reiniciar', async () => {
+    const calls = await simulate({ start: '2026-11-23 10:00', end: '2026-11-23 13:00', lastAgoHours: 23, daily: '2026-11-22' });
+    assert.deepEqual(calls, ['2026-11-23 11:00 ok']);
+  });
+
+  test('un fallo después de medianoche se reintenta a la hora, no a las 23:00', async () => {
+    const calls = await simulate({ start: '2026-11-24 05:00', end: '2026-11-24 08:00', lastAgoHours: 30, daily: '2026-11-23', fails: 1 });
+    assert.deepEqual(calls, ['2026-11-24 05:00 falla', '2026-11-24 06:00 ok']);
+  });
+
+  test('con un respaldo reciente no respalda fuera de la ventana; el diario a las 23:00 sigue igual', async () => {
+    const calls = await simulate({ start: '2026-11-23 21:00', end: '2026-11-24 01:00', lastAgoHours: 1, daily: '2026-11-22' });
+    assert.deepEqual(calls, ['2026-11-23 23:00 ok']);
+  });
+
   test('sin BACKUP_AGE_RECIPIENT queda desactivado sin reiniciarse en bucle', async () => {
     const r = await sched(SOURCE_ENV, 4);
     assert.match(r.stdout, /desactivado/);

@@ -87,7 +87,7 @@ docker compose exec -T api node src/interfaces/cli/import-bundle.ts --email tu@c
 
 ## Respaldos
 
-El servicio `backup` respalda la base de datos **todos los días a las 23:00** (hora de Chile). También respalda al iniciar si el último respaldo tiene más de 24 h.
+El servicio `backup` respalda la base de datos **todos los días a las 23:00** (hora de Chile). Si el equipo estaba dormido a esa hora, se pone al día en cuanto despierta: respalda a cualquier hora si el último respaldo exitoso tiene más de 24 h, y un respaldo fallido se reintenta cada hora, también de madrugada.
 
 - Usa `pg_dump` (solo lectura), comprime con gzip y **cifra con [age](https://age-encryption.org)** con tu clave **pública**. El servidor nunca tiene la clave privada.
 - Cada versión es un commit en la rama huérfana `backups` de este mismo repo, que se sube a GitHub con una deploy key. Solo se agrega un commit cuando los datos cambian; el historial de git es la retención.

@@ -1,6 +1,10 @@
 #!/bin/sh
-# Proceso del servicio `backup`: un respaldo diario a BACKUP_TIME (zona BACKUP_TZ) y uno al
-# iniciar si el último exitoso tiene más de 24 h. Los fallos se reintentan cada hora.
+# Proceso del servicio `backup`. Revisa cada minuto, a cualquier hora (el equipo puede estar
+# dormido a BACKUP_TIME), y respalda si:
+#   - el último intento falló y ya pasó 1 h (reintento);
+#   - si no hay reintento pendiente, el último exitoso tiene 24 h o más (state/last-success se
+#     relee en cada vuelta: un backup-now manual también lo actualiza);
+#   - o es el diario: ya pasó BACKUP_TIME (zona BACKUP_TZ) y hoy no se ha hecho.
 set -eu
 . /usr/local/lib/crescendo-backup/lib.sh
 
@@ -35,17 +39,17 @@ run_backup() {
   fi
 }
 
-last=$(cat "$STATE_DIR/state/last-success" 2>/dev/null || echo 0)
-if [ $(( $(date +%s) - last )) -ge 86400 ]; then
-  log "último respaldo con más de 24 h: respaldando al iniciar"
-  run_backup
-fi
-log "próximo respaldo diario a las $BACKUP_TIME ($TZ)"
+due() {
+  now=$(date +%s)
+  [ "$now" -ge "$retry_after" ] || return 1
+  if [ "$retry_after" -gt 0 ]; then log "reintentando el respaldo fallido"; return 0; fi
+  last=$(cat "$STATE_DIR/state/last-success" 2>/dev/null || true)
+  if [ $(( now - ${last:-0} )) -ge 86400 ]; then log "último respaldo con más de 24 h: respaldando"; return 0; fi
+  [ "$(minutes_now)" -ge "$target" ] && [ "$(cat "$STATE_DIR/state/daily" 2>/dev/null || true)" != "$(date +%F)" ]
+}
 
+log "próximo respaldo diario a las $BACKUP_TIME ($TZ)"
 while :; do
-  if [ "$(minutes_now)" -ge "$target" ] && [ "$(cat "$STATE_DIR/state/daily" 2>/dev/null || true)" != "$(date +%F)" ] &&
-    [ "$(date +%s)" -ge "$retry_after" ]; then
-    run_backup
-  fi
+  if due; then run_backup; fi
   sleep 60 & wait $!
 done
